@@ -14,6 +14,19 @@ Surge Mac does not natively support VLESS. This tool bridges the gap: it fetches
 ## Install
 
 ```bash
+npm i -g surge-vless-bridge
+```
+
+Then run:
+
+```bash
+surge-vless-bridge init
+surge-vless-bridge sync
+```
+
+## Development
+
+```bash
 npm install
 ```
 

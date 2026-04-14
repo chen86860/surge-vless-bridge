@@ -1,13 +1,34 @@
 {
   "name": "surge-vless-bridge",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Node.js CLI that converts VLESS subscriptions into Surge Mac external proxies backed by sing-box.",
+  "license": "MIT",
+  "author": "chen86860",
+  "keywords": [
+    "surge",
+    "vless",
+    "sing-box",
+    "proxy",
+    "cli",
+    "macos"
+  ],
+  "homepage": "https://github.com/chen86860/surge-vless-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/chen86860/surge-vless-bridge/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chen86860/surge-vless-bridge.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "main": "dist/cli.js",
   "bin": {
     "surge-vless-bridge": "./dist/cli.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
     "init": "tsx src/cli.ts init",
     "sync": "tsx src/cli.ts sync",
     "rebuild": "tsx src/cli.ts rebuild",
@@ -17,6 +38,7 @@
   },
   "files": [
     "dist",
+    "LICENSE",
     "README.md",
     "README.zh-CN.md",
     ".surge-vless-bridge.example.json"
