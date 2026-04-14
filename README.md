@@ -27,7 +27,29 @@ npm run init
 
 This writes `.surge-vless-bridge.json` in the current directory.
 
-**2. Set your subscription URL** in `.surge-vless-bridge.json`, then sync:
+**2. Edit `.surge-vless-bridge.json`:**
+
+```json
+{
+  "subscriptionUrl": "https://your-provider.com/subscription",
+  "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/MyProfile.conf"
+}
+```
+
+- **`subscriptionUrl`**: Your VLESS subscription URL.
+
+- **`surgeConfigPath`**: Absolute path to your Surge profile. To find it:
+  1. Click the Surge icon in the **macOS menu bar**
+  2. Go to **Switch Profile**, then click **Show in Finder** on your active profile
+  3. Press `⌘ + i` on the file in Finder and copy the full path including the filename
+
+  > Or list all profiles quickly in Terminal:
+  >
+  > ```bash
+  > ls ~/Library/Application\ Support/Surge/Profiles/
+  > ```
+
+**3. Sync:**
 
 ```bash
 npm run sync
@@ -42,7 +64,7 @@ npm run sync
 ```json
 {
   "subscriptionUrl": "https://example.com/subscription",
-  "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Surge Smart Config.conf",
+  "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Config.conf",
   "policyGroupName": "VLESS",
   "portStart": 2081
 }
@@ -50,10 +72,10 @@ npm run sync
 
 **Required**
 
-| Field             | Description                                                   |
-| ----------------- | ------------------------------------------------------------- |
-| `subscriptionUrl` | Your VLESS subscription URL                                   |
-| `surgeConfigPath` | Absolute path to your Surge profile (auto-detected by `init`) |
+| Field             | Description                         |
+| ----------------- | ----------------------------------- |
+| `subscriptionUrl` | Your VLESS subscription URL         |
+| `surgeConfigPath` | Absolute path to your Surge profile |
 
 **Optional**
 

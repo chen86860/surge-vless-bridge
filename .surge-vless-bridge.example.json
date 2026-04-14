@@ -1,6 +1,6 @@
 {
   "subscriptionUrl": "https://example.com/subscription",
-  "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Surge Smart Config.conf",
+  "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Config.conf",
   "policyGroupName": "VLESS",
   "portStart": 2081
 }

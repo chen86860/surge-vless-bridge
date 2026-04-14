@@ -27,9 +27,29 @@ npm run init
 
 会在当前目录生成 `.surge-vless-bridge.json`。
 
-**2. 填写订阅地址**：
+**2. 编辑 `.surge-vless-bridge.json`：**
 
-在 `.surge-vless-bridge.json` 中设置 `subscriptionUrl`，确认 `surgeConfigPath` 正确后运行：
+```json
+{
+  "subscriptionUrl": "https://your-provider.com/subscription",
+  "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/MyProfile.conf"
+}
+```
+
+- **`subscriptionUrl`**：填入你的 VLESS 订阅地址。
+
+- **`surgeConfigPath`**：Surge 配置文件的绝对路径。获取方式：
+  1. 点击 macOS **菜单栏**中的 Surge 图标
+  2. 选择 **切换配置**，在当前使用的配置文件上点击 **在访达中显示**
+  3. 在 Finder 中对该文件按 `⌘ + i`，复制"位置"下的完整路径，拼上文件名填入
+
+  > 也可以通过终端快速查看所有配置文件：
+  >
+  > ```bash
+  > ls ~/Library/Application\ Support/Surge/Profiles/
+  > ```
+
+**3. 同步：**
 
 ```bash
 npm run sync
@@ -44,7 +64,7 @@ npm run sync
 ```json
 {
   "subscriptionUrl": "https://example.com/subscription",
-  "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Surge Smart Config.conf",
+  "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Config.conf",
   "policyGroupName": "VLESS",
   "portStart": 2081
 }
@@ -52,10 +72,10 @@ npm run sync
 
 **必填**
 
-| 字段              | 说明                                        |
-| ----------------- | ------------------------------------------- |
-| `subscriptionUrl` | VLESS 订阅地址                              |
-| `surgeConfigPath` | Surge 配置文件的绝对路径（`init` 自动检测） |
+| 字段              | 说明                     |
+| ----------------- | ------------------------ |
+| `subscriptionUrl` | VLESS 订阅地址           |
+| `surgeConfigPath` | Surge 配置文件的绝对路径 |
 
 **选填**
 
