@@ -1,7 +1,7 @@
 import { lookup } from 'node:dns/promises';
-import { mkdir, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { isIP } from 'node:net';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 import { getVlessSubscriptionNodes } from './parse';
 import type { CliConfig } from './types/cli-config';
@@ -80,7 +80,6 @@ const ensureRequiredConfig = (config: CliConfig) => {
 const ensureWritableDirs = async (config: CliConfig) => {
   await mkdir(config.outputDir, { recursive: true });
   await mkdir(config.backupDir, { recursive: true });
-  await mkdir(dirname(config.subscriptionOutputPath), { recursive: true });
 };
 
 export const backupSurgeProfile = async (config: CliConfig) => {
@@ -253,7 +252,7 @@ export const rebuildSurgeFromLocalConfigs = async (config: CliConfig) => {
   }
 
   const generated = await Promise.all(
-    entries.map(async (entry, index) => {
+    entries.map(async (entry) => {
       const match = entry.match(/sing-box\[(\d+)\]\.json$/);
       if (!match) {
         return null;
@@ -275,7 +274,7 @@ export const rebuildSurgeFromLocalConfigs = async (config: CliConfig) => {
       }
 
       return {
-        nodeName: nodeName || `node${index + 1}`,
+        nodeName,
         port,
         configPath,
         server: outbound.server,
@@ -322,10 +321,7 @@ export const restoreSurgeProfileBackup = async ({ config, backupPath }: { config
   return targetPath;
 };
 
-const readJsonCompatibleBinary = async (path: string) => {
-  const { readFile } = await import('node:fs/promises');
-  return readFile(path);
-};
+const readJsonCompatibleBinary = (path: string) => readFile(path);
 
 const findLatestBackup = async (backupDir: string) => {
   try {

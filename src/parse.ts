@@ -18,7 +18,6 @@ export const getVlessSubscriptionNodes = async ({
   const decodedData = decodeSubscription(rawData);
   const nodes = decodedData.split('\n').filter((line) => line.trim() !== '');
   const vlessNodes = nodes.filter((node) => node.startsWith('vless://'));
-  console.log({ subscriptionOutputPath });
   if (subscriptionOutputPath) {
     await writeTextFile(subscriptionOutputPath, `${vlessNodes.join('\n')}\n`);
   }
