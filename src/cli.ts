@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
-import { loadCliConfig, writeExampleConfig } from './configuration';
+import { resolve } from 'node:path';
+
+import { HOME_CONFIG_FILE_PATH, loadCliConfig, writeExampleConfig } from './configuration';
 import type { CliConfigInput } from './types/cli-config';
 import { rebuildSurgeFromLocalConfigs, restoreSurgeProfileBackup, runDoctor, syncSubscriptionToSurge } from './surge';
 
@@ -31,11 +33,15 @@ Flags:
   --port-start <number>       Override the first local SOCKS port
   --force                     Overwrite config on init
 
+Default config path:
+  Global install              ~/.config/surge-vless-bridge/config.json
+  Local development           ./.surge-vless-bridge.json
+
 Examples:
-  npm run init
-  npm run sync -- --subscription-url https://example.com/sub
-  npm run rebuild
-  npm run doctor
+  surge-vless-bridge init
+  surge-vless-bridge sync --subscription-url https://example.com/sub
+  surge-vless-bridge rebuild
+  surge-vless-bridge doctor
 `;
 
 const parseArgs = (argv: string[]): ParsedArgs => {
@@ -82,6 +88,19 @@ const toOverrides = (options: Record<string, string | boolean>): CliConfigInput 
   };
 };
 
+const isUsingGlobalDefaultConfigPath = (configPath: string, hasExplicitConfigPath: boolean) => {
+  if (hasExplicitConfigPath) {
+    return false;
+  }
+
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (!home) {
+    return false;
+  }
+
+  return configPath === resolve(home, HOME_CONFIG_FILE_PATH);
+};
+
 const main = async () => {
   const parsed = parseArgs(process.argv.slice(2));
   const cwd = process.cwd();
@@ -92,13 +111,17 @@ const main = async () => {
   }
 
   if (parsed.command === 'init') {
+    const hasExplicitConfigPath = typeof parsed.options.config === 'string';
     const { configPath, warnings } = await writeExampleConfig({
       cwd,
-      configPath: typeof parsed.options.config === 'string' ? parsed.options.config : undefined,
+      configPath: hasExplicitConfigPath ? (parsed.options.config as string) : undefined,
       force: Boolean(parsed.options.force),
     });
 
     console.log(`Created config template: ${configPath}`);
+    if (isUsingGlobalDefaultConfigPath(configPath, hasExplicitConfigPath)) {
+      console.log(`Global install detected. Your config file is at: ${configPath}`);
+    }
     for (const warning of warnings) {
       console.warn(`Warning: ${warning}`);
     }

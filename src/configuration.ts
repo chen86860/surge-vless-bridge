@@ -6,6 +6,7 @@ import type { CliConfig, CliConfigInput } from './types/cli-config';
 import { pathExists, readJsonFile, writeTextFile } from './utils/fs';
 
 export const CONFIG_FILE_NAME = '.surge-vless-bridge.json';
+export const HOME_CONFIG_FILE_PATH = join('.config', 'surge-vless-bridge', 'config.json');
 
 const DEFAULT_HEADERS = {
   accept:
@@ -96,6 +97,23 @@ export const getDefaultConfig = async (_cwd: string): Promise<CliConfig> => {
   };
 };
 
+const isGlobalCliExecution = () => {
+  const entryPath = (process.argv[1] ?? '').replace(/\\/g, '/');
+  return (
+    entryPath.includes('/lib/node_modules/surge-vless-bridge/') ||
+    entryPath.includes('/node_modules/surge-vless-bridge/')
+  );
+};
+
+const resolveDefaultConfigPath = (cwd: string) => {
+  const home = process.env.HOME ?? process.env.USERPROFILE;
+  if (home && isGlobalCliExecution()) {
+    return join(home, HOME_CONFIG_FILE_PATH);
+  }
+
+  return resolve(cwd, CONFIG_FILE_NAME);
+};
+
 const mergeConfig = (base: CliConfig, input?: CliConfigInput): CliConfig => {
   if (!input) {
     return base;
@@ -124,7 +142,7 @@ export const loadCliConfig = async ({
   overrides?: CliConfigInput;
 }) => {
   const defaults = await getDefaultConfig(cwd);
-  const resolvedConfigPath = configPath ? resolve(cwd, configPath) : resolve(cwd, CONFIG_FILE_NAME);
+  const resolvedConfigPath = configPath ? resolve(cwd, configPath) : resolveDefaultConfigPath(cwd);
 
   if (!(await pathExists(resolvedConfigPath))) {
     return {
@@ -153,7 +171,7 @@ export const writeExampleConfig = async ({
 }) => {
   const defaults = await getDefaultConfig(cwd);
   const singBoxBinary = await detectSingBoxBinary();
-  const resolvedConfigPath = configPath ? resolve(cwd, configPath) : resolve(cwd, CONFIG_FILE_NAME);
+  const resolvedConfigPath = configPath ? resolve(cwd, configPath) : resolveDefaultConfigPath(cwd);
 
   if (!force && (await pathExists(resolvedConfigPath))) {
     throw new Error(`Config file already exists: ${resolvedConfigPath}`);

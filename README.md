@@ -20,30 +20,24 @@ Surge Mac does not natively support VLESS. This tool bridges the gap: it fetches
 npm i -g surge-vless-bridge
 ```
 
-Then run:
-
-```bash
-surge-vless-bridge init
-surge-vless-bridge sync
-```
-
-## Development
-
-```bash
-npm install
-```
-
 ## Quick Start
 
 **1. Create a config file:**
 
 ```bash
-npm run init
+surge-vless-bridge init
 ```
 
-This writes `.surge-vless-bridge.json` in the current directory.
+This writes the config template to `~/.config/surge-vless-bridge/config.json` and prints the exact path.
 
-**2. Edit `.surge-vless-bridge.json`:**
+**2. Edit the config file:**
+
+```bash
+# open the file printed by init, e.g.
+open ~/.config/surge-vless-bridge/config.json
+```
+
+Fill in at minimum:
 
 ```json
 {
@@ -65,17 +59,23 @@ This writes `.surge-vless-bridge.json` in the current directory.
   > ls ~/Library/Application\ Support/Surge/Profiles/
   > ```
 
-**3. Sync:**
+**3. Run a sync:**
 
 ```bash
-npm run sync
+surge-vless-bridge sync
 ```
 
 `sync` fetches the subscription, generates sing-box configs, backs up your Surge profile, and updates it.
 
+**4. Verify everything is correct:**
+
+```bash
+surge-vless-bridge doctor
+```
+
 ## Config File
 
-`.surge-vless-bridge.json` — created by `init`, edit before the first `sync`.
+Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 
 ```json
 {
@@ -106,15 +106,42 @@ npm run sync
 You can also override fields at runtime:
 
 ```bash
-npm run sync -- --subscription-url https://example.com/sub --group-name VLESS
+surge-vless-bridge sync --subscription-url https://example.com/sub --group-name VLESS
 ```
 
 ## Commands
 
-| Command           | Description                                                   |
-| ----------------- | ------------------------------------------------------------- |
-| `npm run init`    | Create a config template with detected defaults               |
-| `npm run sync`    | Fetch subscription → generate sing-box configs → update Surge |
-| `npm run rebuild` | Rebuild Surge block from existing local configs (no network)  |
-| `npm run restore` | Restore the latest Surge profile backup                       |
-| `npm run doctor`  | Validate config, paths, and required Surge markers            |
+| Command                      | Description                                                   |
+| ---------------------------- | ------------------------------------------------------------- |
+| `surge-vless-bridge init`    | Create a config template with detected defaults               |
+| `surge-vless-bridge sync`    | Fetch subscription → generate sing-box configs → update Surge |
+| `surge-vless-bridge rebuild` | Rebuild Surge block from existing local configs (no network)  |
+| `surge-vless-bridge restore` | Restore the latest Surge profile backup                       |
+| `surge-vless-bridge doctor`  | Validate config, paths, and required Surge markers            |
+
+---
+
+## Development
+
+For contributors working on the source code.
+
+```bash
+git clone https://github.com/chen86860/surge-vless-bridge.git
+cd surge-vless-bridge
+npm install
+```
+
+Config file defaults to `.surge-vless-bridge.json` in the current directory, not the global path.
+
+Run commands directly via `tsx` without building:
+
+```bash
+npm run sync         # tsx src/cli.ts sync
+npm run doctor       # tsx src/cli.ts doctor
+```
+
+Build compiled output to `dist/`:
+
+```bash
+npm run build
+```
