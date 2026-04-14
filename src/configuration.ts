@@ -1,4 +1,4 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
@@ -16,17 +16,25 @@ const DEFAULT_HEADERS = {
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
 } as const;
 
-const detectSingBoxBinary = () => {
+const detectSingBoxBinary = async () => {
   const result = spawnSync('which', ['sing-box'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   });
 
   if (result.status === 0) {
-    return result.stdout.trim();
+    const binaryPath = result.stdout.trim();
+    return {
+      path: binaryPath,
+      exists: Boolean(binaryPath),
+    };
   }
 
-  return '/opt/homebrew/bin/sing-box';
+  const fallbackPath = '/opt/homebrew/bin/sing-box';
+  return {
+    path: fallbackPath,
+    exists: await pathExists(fallbackPath),
+  };
 };
 
 const detectSurgeConfigPath = async () => {
@@ -41,14 +49,28 @@ const detectSurgeConfigPath = async () => {
     const entries = await readdir(profilesDir, { withFileTypes: true });
     const candidates = entries
       .filter((entry) => entry.isFile() && entry.name.endsWith('.conf'))
-      .map((entry) => entry.name)
-      .sort((left, right) => {
-        const leftScore = Number(left.includes('Smart'));
-        const rightScore = Number(right.includes('Smart'));
-        return rightScore - leftScore || left.localeCompare(right);
-      });
+      .map((entry) => join(profilesDir, entry.name));
 
-    return candidates[0] ? join(profilesDir, candidates[0]) : '';
+    if (candidates.length === 1) {
+      return candidates[0] ?? '';
+    }
+
+    const sortedByMtime = await Promise.all(
+      candidates.map(async (candidate) => ({
+        path: candidate,
+        mtimeMs: (await stat(candidate)).mtimeMs,
+      })),
+    );
+
+    sortedByMtime.sort((left, right) => {
+      if (right.mtimeMs !== left.mtimeMs) {
+        return right.mtimeMs - left.mtimeMs;
+      }
+
+      return right.path.localeCompare(left.path);
+    });
+
+    return sortedByMtime[0]?.path ?? '';
   } catch {
     return '';
   }
@@ -57,11 +79,12 @@ const detectSurgeConfigPath = async () => {
 export const getDefaultConfig = async (_cwd: string): Promise<CliConfig> => {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? '.';
   const stateDir = join(home, '.config', 'surge-vless-bridge');
+  const singBoxBinary = await detectSingBoxBinary();
 
   return {
     subscriptionUrl: '',
     surgeConfigPath: await detectSurgeConfigPath(),
-    singBoxBinary: detectSingBoxBinary(),
+    singBoxBinary: singBoxBinary.path,
     outputDir: join(stateDir, 'config'),
     backupDir: join(stateDir, 'backups'),
     policyGroupName: 'VLESS',
@@ -129,6 +152,7 @@ export const writeExampleConfig = async ({
   force?: boolean;
 }) => {
   const defaults = await getDefaultConfig(cwd);
+  const singBoxBinary = await detectSingBoxBinary();
   const resolvedConfigPath = configPath ? resolve(cwd, configPath) : resolve(cwd, CONFIG_FILE_NAME);
 
   if (!force && (await pathExists(resolvedConfigPath))) {
@@ -143,5 +167,12 @@ export const writeExampleConfig = async ({
   };
 
   await writeTextFile(resolvedConfigPath, `${JSON.stringify(example, null, 2)}\n`);
-  return resolvedConfigPath;
+  return {
+    configPath: resolvedConfigPath,
+    warnings: singBoxBinary.exists
+      ? []
+      : [
+          `sing-box not found. Install it first(brew install sing-box), or update singBoxBinary manually: ${singBoxBinary.path}`,
+        ],
+  };
 };

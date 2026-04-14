@@ -92,13 +92,16 @@ const main = async () => {
   }
 
   if (parsed.command === 'init') {
-    const configPath = await writeExampleConfig({
+    const { configPath, warnings } = await writeExampleConfig({
       cwd,
       configPath: typeof parsed.options.config === 'string' ? parsed.options.config : undefined,
       force: Boolean(parsed.options.force),
     });
 
     console.log(`Created config template: ${configPath}`);
+    for (const warning of warnings) {
+      console.warn(`Warning: ${warning}`);
+    }
     console.log('Fill subscriptionUrl before running `sync`.');
     return;
   }
