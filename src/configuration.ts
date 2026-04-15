@@ -86,7 +86,7 @@ export const getDefaultConfig = async (_cwd: string): Promise<CliConfig> => {
     subscriptionUrl: '',
     surgeConfigPath: await detectSurgeConfigPath(),
     singBoxBinary: singBoxBinary.path,
-    outputDir: join(stateDir, 'config'),
+    outputDir: join(stateDir, 'nodes'),
     backupDir: join(stateDir, 'backups'),
     policyGroupName: 'VLESS',
     proxyStartMarker: '# vless start',

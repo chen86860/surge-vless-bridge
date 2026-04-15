@@ -100,7 +100,7 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 | `policyGroupName` | `"VLESS"`                              | Surge policy group name to populate                    |
 | `portStart`       | `2081`                                 | Starting local port; each node uses the next available |
 | `singBoxBinary`   | auto-detected via `which sing-box`     | Path to the `sing-box` binary                          |
-| `outputDir`       | `~/.config/surge-vless-bridge/config`  | Where per-node sing-box configs are written            |
+| `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | Where per-node sing-box configs are written            |
 | `backupDir`       | `~/.config/surge-vless-bridge/backups` | Where Surge profile backups are stored                 |
 
 You can also override fields at runtime:

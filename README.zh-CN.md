@@ -100,7 +100,7 @@ surge-vless-bridge doctor
 | `policyGroupName` | `"VLESS"`                              | 要写入的 Surge 策略组名称        |
 | `portStart`       | `2081`                                 | 起始本地端口，每个节点依次递增   |
 | `singBoxBinary`   | 自动检测（`which sing-box`）           | `sing-box` 可执行文件路径        |
-| `outputDir`       | `~/.config/surge-vless-bridge/config`  | 每个节点的 sing-box 配置保存目录 |
+| `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | 每个节点的 sing-box 配置保存目录 |
 | `backupDir`       | `~/.config/surge-vless-bridge/backups` | Surge 配置备份目录               |
 
 也可以通过命令行参数临时覆盖：
