@@ -97,17 +97,28 @@ export const getDefaultConfig = async (_cwd: string): Promise<CliConfig> => {
   };
 };
 
-const isGlobalCliExecution = () => {
-  const entryPath = (process.argv[1] ?? '').replace(/\\/g, '/');
-  return (
-    entryPath.includes('/lib/node_modules/surge-vless-bridge/') ||
-    entryPath.includes('/node_modules/surge-vless-bridge/')
-  );
+const resolveGitRoot = (cwd: string): string | undefined => {
+  const result = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+
+  if (result.status === 0) {
+    return result.stdout.trim() || undefined;
+  }
+
+  return undefined;
 };
 
 const resolveDefaultConfigPath = (cwd: string) => {
+  const gitRoot = resolveGitRoot(cwd);
+  if (gitRoot) {
+    return join(gitRoot, CONFIG_FILE_NAME);
+  }
+
   const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (home && isGlobalCliExecution()) {
+  if (home) {
     return join(home, HOME_CONFIG_FILE_PATH);
   }
 
