@@ -1,4 +1,3 @@
-import ky from 'ky';
 import { writeTextFile } from './utils/fs';
 import { decodeSubscription } from './utils/decode-subscription';
 
@@ -11,9 +10,13 @@ export const getVlessSubscriptionNodes = async ({
   requestHeaders?: Record<string, string>;
   subscriptionOutputPath?: string;
 }) => {
-  const response = await ky.get(subscriptionUrl, {
+  const response = await fetch(subscriptionUrl, {
     headers: requestHeaders,
   });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch subscription: ${response.status} ${response.statusText}`);
+  }
+
   const rawData = await response.text();
   const decodedData = decodeSubscription(rawData);
   const nodes = decodedData.split('\n').filter((line) => line.trim() !== '');

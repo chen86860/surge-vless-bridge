@@ -1,6 +1,6 @@
 {
   "name": "surge-vless-bridge",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Node.js CLI that converts VLESS subscriptions into Surge Mac external proxies backed by sing-box.",
   "license": "MIT",
   "author": "chen86860",
@@ -47,8 +47,5 @@
     "@types/node": "^25.5.2",
     "tsx": "^4.20.5",
     "typescript": "^5.9.3"
-  },
-  "dependencies": {
-    "ky": "^2.0.0"
   }
 }
