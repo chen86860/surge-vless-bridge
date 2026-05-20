@@ -1,7 +1,7 @@
 import { writeTextFile } from './utils/fs';
 import { decodeSubscription } from './utils/decode-subscription';
 
-export const getVlessSubscriptionNodes = async ({
+export const getSupportedSubscriptionNodes = async ({
   subscriptionUrl,
   requestHeaders,
   subscriptionOutputPath,
@@ -20,10 +20,12 @@ export const getVlessSubscriptionNodes = async ({
   const rawData = await response.text();
   const decodedData = decodeSubscription(rawData);
   const nodes = decodedData.split('\n').filter((line) => line.trim() !== '');
-  const vlessNodes = nodes.filter((node) => node.startsWith('vless://'));
+  const supportedNodes = nodes.filter((node) => node.startsWith('vless://') || node.startsWith('ss://'));
   if (subscriptionOutputPath) {
-    await writeTextFile(subscriptionOutputPath, `${vlessNodes.join('\n')}\n`);
+    await writeTextFile(subscriptionOutputPath, `${supportedNodes.join('\n')}\n`);
   }
 
-  return vlessNodes;
+  return supportedNodes;
 };
+
+export const getVlessSubscriptionNodes = getSupportedSubscriptionNodes;

@@ -36,3 +36,14 @@ export type SingBoxVlessOutbound = {
   network?: string;
   ntp?: unknown;
 };
+
+export type SingBoxShadowsocksOutbound = {
+  type: 'shadowsocks';
+  tag: string;
+  server: string;
+  server_port: number;
+  method: string;
+  password: string;
+};
+
+export type SingBoxOutbound = SingBoxVlessOutbound | SingBoxShadowsocksOutbound;

@@ -1,12 +1,8 @@
-import type { SingBoxVlessOutbound } from '../types/sing-box-vless-outbound';
+import type { SingBoxOutbound } from '../types/sing-box-vless-outbound';
 
-export const parseTemplate = ({
-  node,
-  port,
-}: {
-  node: SingBoxVlessOutbound | SingBoxVlessOutbound[];
-  port: number;
-}) => {
+export const parseTemplate = ({ node, port }: { node: SingBoxOutbound | SingBoxOutbound[]; port: number }) => {
+  const finalTag = Array.isArray(node) ? node?.[0]?.tag : node.tag;
+
   return {
     log: {
       level: 'error',
@@ -22,7 +18,7 @@ export const parseTemplate = ({
     ],
     outbounds: (Array.isArray(node) ? node : [node]).map((item) => ({ ...item })),
     route: {
-      final: Array.isArray(node) ? node?.[0]?.tag : node.tag,
+      final: finalTag,
     },
   };
 };

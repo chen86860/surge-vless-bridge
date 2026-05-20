@@ -3,14 +3,15 @@ import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, join, resolve } from 'node:path';
 
-import { getVlessSubscriptionNodes } from './parse';
+import { getSupportedSubscriptionNodes } from './parse';
 import type { CliConfig } from './types/cli-config';
-import type { SingBoxVlessOutbound } from './types/sing-box-vless-outbound';
+import type { SingBoxOutbound } from './types/sing-box-vless-outbound';
 import { parseTemplate } from './utils/parse-template';
 import { pathExists, readJsonFile, readTextFile, writeBinaryFile, writeTextFile } from './utils/fs';
 import { parseVlessNode } from './utils/parse-vless-node';
+import { parseShadowsocksNode } from './utils/parse-shadowsocks-node';
 
-const POLICY_REGEX_FILTER = /^((?!Remain|Expired|官网|如需|套餐|去除|剩余|距离|Reset|重置|流量).)+$/;
+const POLICY_REGEX_FILTER = /^((?!Remain|Expired|官网|节点|如需|套餐|去除|剩余|距离|Reset|重置|流量).)+$/;
 
 type GeneratedNode = {
   nodeName: string;
@@ -59,7 +60,7 @@ const buildExternalProxyLine = async ({
   singBoxBinary,
 }: GeneratedNode & { singBoxBinary: string }) => {
   const addresses = await resolveAddresses(server);
-  const addressArg = addresses.length > 0 ? `, addresses=${addresses.join(',')}` : '';
+  const addressArg = addresses.length > 0 ? `, addresses=${addresses[0]}` : '';
   return `${nodeName} = external, exec=${singBoxBinary}, args=run, args=-c, args=${configPath}, local-port=${port}${addressArg}`;
 };
 
@@ -168,33 +169,35 @@ const generateConfigsFromOutbounds = async ({
   outbounds,
   config,
 }: {
-  outbounds: SingBoxVlessOutbound[];
+  outbounds: SingBoxOutbound[];
   config: CliConfig;
 }) => {
   await ensureWritableDirs(config);
 
   const generated = await Promise.all(
-    outbounds.map(async (outbound, index) => {
-      const port = config.portStart + index;
-      const nodeName = sanitizePolicyName(outbound.tag, index);
-      const configPath = join(config.outputDir, `sing-box[${port}].json`);
-      const serverConfig = parseTemplate({
-        node: {
-          ...outbound,
-          tag: nodeName,
-        },
-        port,
-      });
+    outbounds
+      .filter((outbound) => POLICY_REGEX_FILTER.test(outbound.tag))
+      .map(async (outbound, index) => {
+        const port = config.portStart + index;
+        const nodeName = sanitizePolicyName(outbound.tag, index);
+        const configPath = join(config.outputDir, `sing-box[${port}].json`);
+        const serverConfig = parseTemplate({
+          node: {
+            ...outbound,
+            tag: nodeName,
+          },
+          port,
+        });
 
-      await writeTextFile(configPath, `${JSON.stringify(serverConfig, null, 2)}\n`);
+        await writeTextFile(configPath, `${JSON.stringify(serverConfig, null, 2)}\n`);
 
-      return {
-        nodeName,
-        port,
-        configPath,
-        server: outbound.server,
-      } satisfies GeneratedNode;
-    }),
+        return {
+          nodeName,
+          port,
+          configPath,
+          server: outbound.server,
+        } satisfies GeneratedNode;
+      }),
   );
 
   const proxyLines = await Promise.all(
@@ -216,12 +219,22 @@ const generateConfigsFromOutbounds = async ({
 export const syncSubscriptionToSurge = async (config: CliConfig) => {
   ensureRequiredConfig(config);
 
-  const vlessNodes = await getVlessSubscriptionNodes({
+  const subscriptionNodes = await getSupportedSubscriptionNodes({
     subscriptionUrl: config.subscriptionUrl!,
     requestHeaders: config.requestHeaders,
     subscriptionOutputPath: config.subscriptionOutputPath,
   });
-  const outbounds = vlessNodes.map((node, index) => parseVlessNode(node, index));
+  const outbounds = subscriptionNodes.map((node, index) => {
+    if (node.startsWith('vless://')) {
+      return parseVlessNode(node, index);
+    }
+
+    if (node.startsWith('ss://')) {
+      return parseShadowsocksNode(node, index);
+    }
+
+    throw new Error(`Unsupported node at index ${index + 1}: ${node}`);
+  });
   const generated = await generateConfigsFromOutbounds({ outbounds, config });
   const backupPath = await backupSurgeProfile(config);
 
