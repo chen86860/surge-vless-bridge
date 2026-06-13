@@ -62,11 +62,7 @@ const resolveWithDnsServers = async (server: string, dnsServers: string[]) => {
   return settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
 };
 
-const queryDohAddresses = async (
-  server: string,
-  recordType: keyof typeof DOH_RECORD_TYPES,
-  dohEndpoint: string,
-) => {
+const queryDohAddresses = async (server: string, recordType: keyof typeof DOH_RECORD_TYPES, dohEndpoint: string) => {
   const url = new URL(dohEndpoint);
   url.searchParams.set('name', server);
   url.searchParams.set('type', recordType);
@@ -157,7 +153,7 @@ const buildExternalProxyLine = async ({
   addressResolver,
 }: GeneratedNode & { singBoxBinary: string; addressResolver: AddressResolverConfig }) => {
   const addresses = await resolveAddresses(server, addressResolver);
-  const addressArg = addresses.length > 0 ? `, addresses=${addresses.join(',')}` : '';
+  const addressArg = addresses.length > 0 ? `, addresses=${addresses[0]}` : '';
   return `${nodeName} = external, exec=${singBoxBinary}, args=run, args=-c, args=${configPath}, local-port=${port}${addressArg}`;
 };
 

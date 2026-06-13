@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { HOME_CONFIG_FILE_PATH, loadCliConfig, writeExampleConfig } from './configuration';
@@ -12,7 +13,20 @@ type ParsedArgs = {
   positionals: string[];
 };
 
-const HELP_TEXT = `surge-vless-bridge
+const readVersion = () => {
+  try {
+    const packageJsonPath = resolve(__dirname, '../package.json');
+    const packageJsonContent = readFileSync(packageJsonPath, 'utf8');
+    const parsed = JSON.parse(packageJsonContent) as { version?: string };
+    return typeof parsed.version === 'string' ? parsed.version : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+};
+
+const VERSION = readVersion();
+
+const HELP_TEXT = `surge-vless-bridge v${VERSION}
 
 Commands:
   init       Create a local config template
@@ -20,6 +34,7 @@ Commands:
   rebuild    Rebuild Surge external proxies from local sing-box configs only
   restore    Restore the latest backup or a specified backup file
   doctor     Validate detected paths and Surge sections
+  version    Show current version
   help       Show this help
 
 Flags:
@@ -31,6 +46,7 @@ Flags:
   --backup-dir <path>         Override Surge backup directory
   --group-name <name>         Override Surge policy group name
   --port-start <number>       Override the first local SOCKS port
+  --version, -v               Show current version
   --force                     Overwrite config on init
 
 Default config path:
@@ -42,6 +58,7 @@ Examples:
   surge-vless-bridge sync --subscription-url https://example.com/sub
   surge-vless-bridge rebuild
   surge-vless-bridge doctor
+  surge-vless-bridge version
 `;
 
 const parseArgs = (argv: string[]): ParsedArgs => {
@@ -104,6 +121,11 @@ const isUsingGlobalDefaultConfigPath = (configPath: string, hasExplicitConfigPat
 const main = async () => {
   const parsed = parseArgs(process.argv.slice(2));
   const cwd = process.cwd();
+
+  if (parsed.command === 'version' || parsed.command === '--version' || parsed.command === '-v') {
+    console.log(VERSION);
+    return;
+  }
 
   if (parsed.command === 'help' || parsed.command === '--help' || parsed.command === '-h') {
     console.log(HELP_TEXT);
