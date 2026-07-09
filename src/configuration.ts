@@ -91,6 +91,7 @@ export const getDefaultConfig = async (_cwd: string): Promise<CliConfig> => {
 
   return {
     subscriptionUrl: '',
+    subscriptionUrls: [],
     surgeConfigPath: await detectSurgeConfigPath(),
     singBoxBinary: singBoxBinary.path,
     outputDir: join(stateDir, 'nodes'),
@@ -140,6 +141,10 @@ const mergeConfig = (base: CliConfig, input?: CliConfigInput): CliConfig => {
 
   const definedEntries = Object.entries(input).filter(([, value]) => value !== undefined);
   const sanitizedInput = Object.fromEntries(definedEntries) as CliConfigInput;
+  const hasSubscriptionUrls = Array.isArray(sanitizedInput.subscriptionUrls);
+  const normalizedSubscriptionUrls = hasSubscriptionUrls
+    ? sanitizedInput.subscriptionUrls?.filter((url) => typeof url === 'string' && url.trim() !== '')
+    : undefined;
   const addressResolverInput =
     typeof sanitizedInput.addressResolver === 'string'
       ? { strategy: sanitizedInput.addressResolver }
@@ -148,6 +153,7 @@ const mergeConfig = (base: CliConfig, input?: CliConfigInput): CliConfig => {
   return {
     ...base,
     ...sanitizedInput,
+    subscriptionUrls: normalizedSubscriptionUrls ?? base.subscriptionUrls,
     requestHeaders: {
       ...base.requestHeaders,
       ...(sanitizedInput.requestHeaders ?? {}),
@@ -205,7 +211,7 @@ export const writeExampleConfig = async ({
   }
 
   const example: CliConfigInput = {
-    subscriptionUrl: '',
+    subscriptionUrls: [''],
     surgeConfigPath: defaults.surgeConfigPath,
     policyGroupName: defaults.policyGroupName,
     portStart: defaults.portStart,

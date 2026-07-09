@@ -93,9 +93,11 @@ const parseArgs = (argv: string[]): ParsedArgs => {
 
 const toOverrides = (options: Record<string, string | boolean>): CliConfigInput => {
   const portStart = typeof options['port-start'] === 'string' ? Number(options['port-start']) : undefined;
+  const subscriptionUrl = typeof options['subscription-url'] === 'string' ? options['subscription-url'] : undefined;
 
   return {
-    subscriptionUrl: typeof options['subscription-url'] === 'string' ? options['subscription-url'] : undefined,
+    subscriptionUrl,
+    subscriptionUrls: subscriptionUrl ? [subscriptionUrl] : undefined,
     surgeConfigPath: typeof options['surge-config'] === 'string' ? options['surge-config'] : undefined,
     singBoxBinary: typeof options['sing-box-bin'] === 'string' ? options['sing-box-bin'] : undefined,
     outputDir: typeof options['output-dir'] === 'string' ? options['output-dir'] : undefined,
@@ -147,7 +149,7 @@ const main = async () => {
     for (const warning of warnings) {
       console.warn(`Warning: ${warning}`);
     }
-    console.log('Fill subscriptionUrl before running `sync`.');
+    console.log('Fill subscriptionUrls before running `sync`.');
     return;
   }
 
