@@ -83,6 +83,9 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
     "https://example.com/subscription-a",
     "https://example.com/subscription-b"
   ],
+  "vlessNodes": [
+    "vless://uuid@example.com:443?type=tcp&security=reality&pbk=public-key&sid=short-id&fp=chrome&sni=example.com&flow=xtls-rprx-vision#Example"
+  ],
   "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Config.conf",
   "policyGroupName": "VLESS",
   "portStart": 2081,
@@ -100,9 +103,11 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 | Field             | Description                         |
 | ----------------- | ----------------------------------- |
 | `subscriptionUrls` | One or more VLESS subscription URLs |
+| `vlessNodes` | One or more raw `vless://` node URLs |
 | `surgeConfigPath` | Absolute path to your Surge profile |
 
 `subscriptionUrl` is still supported for backward compatibility when you only have one subscription.
+At least one of `subscriptionUrl`, `subscriptionUrls`, or `vlessNodes` must be configured.
 
 **Optional**
 

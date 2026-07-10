@@ -83,6 +83,9 @@ surge-vless-bridge doctor
     "https://example.com/subscription-a",
     "https://example.com/subscription-b"
   ],
+  "vlessNodes": [
+    "vless://uuid@example.com:443?type=tcp&security=reality&pbk=public-key&sid=short-id&fp=chrome&sni=example.com&flow=xtls-rprx-vision#Example"
+  ],
   "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Config.conf",
   "policyGroupName": "VLESS",
   "portStart": 2081,
@@ -100,9 +103,11 @@ surge-vless-bridge doctor
 | 字段              | 说明                     |
 | ----------------- | ------------------------ |
 | `subscriptionUrls` | 一个或多个 VLESS 订阅地址 |
+| `vlessNodes` | 一个或多个原始 `vless://` 节点地址 |
 | `surgeConfigPath` | Surge 配置文件的绝对路径 |
 
 `subscriptionUrl` 仍然兼容，适合只有一个订阅地址的旧配置。
+`subscriptionUrl`、`subscriptionUrls`、`vlessNodes` 至少需要配置其中一种节点来源。
 
 **选填**
 

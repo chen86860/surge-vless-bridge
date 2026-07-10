@@ -130,6 +130,11 @@ const getSubscriptionUrls = (config: CliConfig) => {
   return urls.filter((url): url is string => typeof url === 'string' && url.trim() !== '').map((url) => url.trim());
 };
 
+const getConfiguredVlessNodes = (config: CliConfig) =>
+  (config.vlessNodes ?? [])
+    .filter((node): node is string => typeof node === 'string' && node.trim() !== '')
+    .map((node) => node.trim());
+
 const resolveAddresses = async (server: string, resolverConfig: AddressResolverConfig) => {
   if (resolverConfig.strategy === 'off') {
     return [];
@@ -177,9 +182,9 @@ const buildExternalProxyLine = async ({
 };
 
 const ensureRequiredConfig = (config: CliConfig) => {
-  if (getSubscriptionUrls(config).length === 0) {
+  if (getSubscriptionUrls(config).length === 0 && getConfiguredVlessNodes(config).length === 0) {
     throw new Error(
-      'Missing subscriptionUrl/subscriptionUrls. Run `surge-vless-bridge init` and fill the config, or pass --subscription-url.',
+      'Missing subscriptionUrl/subscriptionUrls/vlessNodes. Run `surge-vless-bridge init` and fill the config, or pass --subscription-url.',
     );
   }
 
@@ -384,7 +389,7 @@ export const syncSubscriptionToSurge = async (config: CliConfig) => {
       }),
     ),
   );
-  const vlessNodes = vlessNodesBySubscription.flat();
+  const vlessNodes = [...vlessNodesBySubscription.flat(), ...getConfiguredVlessNodes(config)];
   if (config.subscriptionOutputPath) {
     await writeTextFile(config.subscriptionOutputPath, `${vlessNodes.join('\n')}\n`);
   }
@@ -507,8 +512,13 @@ const findLatestBackup = async (backupDir: string) => {
 
 export const runDoctor = async (config: CliConfig) => {
   const subscriptionUrls = getSubscriptionUrls(config);
+  const vlessNodes = getConfiguredVlessNodes(config);
   const checks = [
-    ['subscriptionUrls', subscriptionUrls.length > 0, `${subscriptionUrls.length} configured`],
+    [
+      'nodeSources',
+      subscriptionUrls.length + vlessNodes.length > 0,
+      `${subscriptionUrls.length} subscription URLs, ${vlessNodes.length} direct VLESS nodes`,
+    ],
     [
       'surgeConfigPath',
       Boolean(config.surgeConfigPath) && (await pathExists(config.surgeConfigPath)),

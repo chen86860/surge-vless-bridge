@@ -10,6 +10,7 @@ export type AddressResolverConfig = {
 export type CliConfig = {
   subscriptionUrl?: string;
   subscriptionUrls?: string[];
+  vlessNodes?: string[];
   surgeConfigPath: string;
   singBoxBinary: string;
   outputDir: string;
