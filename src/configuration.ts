@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
@@ -59,26 +59,7 @@ const detectSurgeConfigPath = async () => {
       .filter((entry) => entry.isFile() && entry.name.endsWith('.conf'))
       .map((entry) => join(profilesDir, entry.name));
 
-    if (candidates.length === 1) {
-      return candidates[0] ?? '';
-    }
-
-    const sortedByMtime = await Promise.all(
-      candidates.map(async (candidate) => ({
-        path: candidate,
-        mtimeMs: (await stat(candidate)).mtimeMs,
-      })),
-    );
-
-    sortedByMtime.sort((left, right) => {
-      if (right.mtimeMs !== left.mtimeMs) {
-        return right.mtimeMs - left.mtimeMs;
-      }
-
-      return right.path.localeCompare(left.path);
-    });
-
-    return sortedByMtime[0]?.path ?? '';
+    return candidates.length === 1 ? (candidates[0] ?? '') : '';
   } catch {
     return '';
   }
@@ -212,12 +193,18 @@ export const writeExampleConfig = async ({
   };
 
   await writeTextFile(resolvedConfigPath, `${JSON.stringify(example, null, 2)}\n`);
+  const warnings: string[] = [];
+  if (!singBoxBinary.exists) {
+    warnings.push(
+      `sing-box not found. Install it first(brew install sing-box), or update singBoxBinary manually: ${singBoxBinary.path}`,
+    );
+  }
+  if (!defaults.surgeConfigPath) {
+    warnings.push('Unable to select a unique Surge profile. Set surgeConfigPath explicitly before running sync.');
+  }
+
   return {
     configPath: resolvedConfigPath,
-    warnings: singBoxBinary.exists
-      ? []
-      : [
-          `sing-box not found. Install it first(brew install sing-box), or update singBoxBinary manually: ${singBoxBinary.path}`,
-        ],
+    warnings,
   };
 };

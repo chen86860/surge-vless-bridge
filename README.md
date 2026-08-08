@@ -73,6 +73,15 @@ surge-vless-bridge sync
 surge-vless-bridge doctor
 ```
 
+## Safe synchronization
+
+- `sync` refuses to update Surge when the subscription contains no VLESS nodes.
+- Every generated node is checked by `sing-box` before the Surge profile is changed.
+- Managed node files are tracked explicitly, so removed subscription nodes cannot return during `rebuild`.
+- Profiles, backups, node configs, and subscription data are written atomically with owner-only permissions.
+- When multiple Surge profiles exist, set `surgeConfigPath` explicitly; the CLI will not guess which profile is active.
+- `doctor` redacts the subscription URL and validates all managed sing-box configs.
+
 ## Config File
 
 Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.

@@ -73,6 +73,15 @@ surge-vless-bridge sync
 surge-vless-bridge doctor
 ```
 
+## 安全同步
+
+- 当订阅中没有 VLESS 节点时，`sync` 会拒绝修改 Surge。
+- 修改 Surge 配置前，会先用 `sing-box` 检查每个生成的节点配置。
+- 工具会显式记录当前节点，订阅中已删除的节点不会在 `rebuild` 时重新出现。
+- Surge 配置、备份、节点配置和订阅数据均采用原子写入，并限制为仅当前用户可读写。
+- 存在多个 Surge 配置时，必须明确填写 `surgeConfigPath`；CLI 不会猜测当前使用的配置。
+- `doctor` 不再显示完整订阅链接，并会检查全部受管理的 sing-box 配置。
+
 ## 配置文件
 
 由 `init` 创建，默认路径：`~/.config/surge-vless-bridge/config.json`。

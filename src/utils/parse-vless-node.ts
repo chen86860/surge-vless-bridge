@@ -26,6 +26,10 @@ export const parseVlessNode = (node: string, index: number): SingBoxVlessOutboun
   const packetEncoding = params.get('packetEncoding') ?? params.get('packet_encoding');
   const tag = decodeURIComponent(url.hash.replace(/^#/, '')) || `vless-${index + 1}`;
 
+  if (security === 'reality' && !pbk) {
+    throw new Error(`Reality node at index ${index + 1} is missing its public key.`);
+  }
+
   const outbound: SingBoxVlessOutbound = {
     type: 'vless',
     tag,
