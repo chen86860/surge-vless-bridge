@@ -26,6 +26,12 @@ export const parseVlessNode = (node: string, index: number): SingBoxVlessOutboun
   const packetEncoding = params.get('packetEncoding') ?? params.get('packet_encoding');
   const tag = decodeURIComponent(url.hash.replace(/^#/, '')) || `vless-${index + 1}`;
 
+  // Without a public key sing-box starts but the reality handshake always fails, which surfaces in
+  // Surge as an external proxy that dies on every request rather than as a config error.
+  if (security === 'reality' && !pbk) {
+    throw new Error(`Reality node at index ${index + 1} is missing its public key (pbk).`);
+  }
+
   const outbound: SingBoxVlessOutbound = {
     type: 'vless',
     tag,

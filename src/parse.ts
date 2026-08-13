@@ -1,6 +1,8 @@
 import { writeTextFile } from './utils/fs';
 import { decodeSubscription } from './utils/decode-subscription';
 
+const SUBSCRIPTION_TIMEOUT_MS = 15_000;
+
 // Subscription URLs carry a token, in the query string or in the path itself, so failures name the
 // provider by origin only. Without this, a user with several subscriptions cannot tell which one
 // returned the error.
@@ -28,6 +30,8 @@ export const getVlessSubscriptionNodes = async ({
   try {
     response = await fetch(subscriptionUrl, {
       headers: requestHeaders,
+      // Without a deadline an unresponsive provider hangs `sync` indefinitely.
+      signal: AbortSignal.timeout(SUBSCRIPTION_TIMEOUT_MS),
     });
   } catch (error) {
     throw new Error(`Failed to fetch subscription ${source}: ${error instanceof Error ? error.message : error}`);
@@ -39,8 +43,11 @@ export const getVlessSubscriptionNodes = async ({
 
   const rawData = await response.text();
   const decodedData = decodeSubscription(rawData);
-  const nodes = decodedData.split('\n').filter((line) => line.trim() !== '');
-  const vlessNodes = nodes.filter((node) => node.startsWith('vless://'));
+  const nodes = decodedData
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const vlessNodes = [...new Set(nodes.filter((node) => node.startsWith('vless://')))];
   if (subscriptionOutputPath) {
     await writeTextFile(subscriptionOutputPath, `${vlessNodes.join('\n')}\n`);
   }
