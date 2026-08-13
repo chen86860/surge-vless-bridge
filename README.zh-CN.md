@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/surge-vless-bridge.svg)](https://www.npmjs.com/package/surge-vless-bridge)
 [![npm downloads](https://img.shields.io/npm/dm/surge-vless-bridge.svg)](https://www.npmjs.com/package/surge-vless-bridge)
 
-[English README](./README.md)
+[English README](./README.md) · [更新日志](./CHANGELOG.zh-CN.md)
 
 基于 Node.js 的 CLI，把 VLESS 订阅转换为 Surge Mac 可用的 `external` 代理节点，底层由本地 `sing-box` 承接。
 
@@ -84,7 +84,7 @@ surge-vless-bridge doctor
   "policyGroupName": "VLESS",
   "portStart": 2081,
   "addressResolver": {
-    "strategy": "system",
+    "strategy": "doh",
     "filterSurgeFakeIp": true,
     "dohEndpoint": "https://1.1.1.1/dns-query",
     "dnsServers": ["1.1.1.1", "8.8.8.8"]
@@ -101,25 +101,37 @@ surge-vless-bridge doctor
 
 **选填**
 
-| 字段              | 默认值                                 | 说明                             |
-| ----------------- | -------------------------------------- | -------------------------------- |
-| `policyGroupName` | `"VLESS"`                              | 要写入的 Surge 策略组名称        |
-| `portStart`       | `2081`                                 | 起始本地端口，每个节点依次递增   |
-| `singBoxBinary`   | 自动检测（`which sing-box`）           | `sing-box` 可执行文件路径        |
-| `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | 每个节点的 sing-box 配置保存目录 |
-| `backupDir`       | `~/.config/surge-vless-bridge/backups` | Surge 配置备份目录               |
+| 字段              | 默认值                                 | 说明                               |
+| ----------------- | -------------------------------------- | ---------------------------------- |
+| `policyGroupName` | `"VLESS"`                              | 要写入的 Surge 策略组名称          |
+| `portStart`       | `2081`                                 | 起始本地端口，每个节点依次递增     |
+| `singBoxBinary`   | 自动检测（`which sing-box`）           | `sing-box` 可执行文件路径          |
+| `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | 每个节点的 sing-box 配置保存目录   |
+| `backupDir`       | `~/.config/surge-vless-bridge/backups` | Surge 配置备份目录                 |
 | `addressResolver` | 见下方                                 | 为 `addresses=` 解析代理服务器域名 |
 
 `addressResolver.strategy` 可选：
 
-| 策略     | 说明                                                                             |
-| -------- | -------------------------------------------------------------------------------- |
-| `system` | 使用 Node.js 系统 DNS 解析，这是默认值。                                          |
-| `dns`    | 使用 `addressResolver.dnsServers` 解析，例如 `["1.1.1.1", "8.8.8.8"]`。          |
-| `doh`    | 使用 `addressResolver.dohEndpoint` 解析，然后回退到 `addressResolver.dnsServers`。 |
-| `off`    | 不在生成的 Surge external proxy 条目中写入 `addresses=`。                         |
+| 策略     | 说明                                                          |
+| -------- | ------------------------------------------------------------- |
+| `doh`    | 使用 `addressResolver.dohEndpoint` 解析，这是默认值。          |
+| `dns`    | 使用 `addressResolver.dnsServers` 解析，例如 `["1.1.1.1", "8.8.8.8"]`。 |
+| `system` | 使用 Node.js 系统 DNS 解析。                                  |
+| `off`    | 不在生成的 Surge external proxy 条目中写入 `addresses=`。      |
 
-`addressResolver.filterSurgeFakeIp` 默认为 `true`。它会在写入 `addresses=` 前过滤 `198.18.0.0/15` 地址，避免把 Surge fake-ip 结果固定到 external proxy 条目里。如果 Surge fake-ip DNS 影响了系统解析，可以设置 `"strategy": "doh"` 或 `"strategy": "dns"`。
+除 `off` 外，任何策略解析不到可用地址时都会自动回退到其余解析方式，因此 DoH 端点不可用或系统解析被
+fake-ip 污染时，仍然可以拿到真实 IP。
+
+Surge 的 `addresses=` 只接受单个地址。当一个域名解析出多个结果时优先写入 IPv4，只有在没有 A 记录时
+才会写 IPv6。
+
+`addressResolver.filterSurgeFakeIp` 默认为 `true`。它会在写入 `addresses=` 前过滤 `198.18.0.0/15` 地址，避免把 Surge fake-ip 结果固定到 external proxy 条目里。
+
+### 为什么默认使用 `doh`
+
+开启 Surge 增强模式后，系统 DNS 会返回 `198.18.0.0/15` 段的 fake IP。此时用系统解析代理服务器域名，会把
+fake IP 固定写进 `addresses=`，导致节点连不通。`doh` 完全绕开系统解析，因此**不需要关闭增强模式**也能正常
+`sync`。只有当你的网络屏蔽了 DoH 端点时，才需要改成 `"strategy": "system"`。
 
 也可以通过命令行参数临时覆盖：
 

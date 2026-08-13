@@ -18,7 +18,7 @@ const DEFAULT_HEADERS = {
 } as const;
 
 const DEFAULT_ADDRESS_RESOLVER: AddressResolverConfig = {
-  strategy: 'system',
+  strategy: 'doh',
   dohEndpoint: 'https://1.1.1.1/dns-query',
   dnsServers: ['1.1.1.1', '8.8.8.8'],
   filterSurgeFakeIp: true,

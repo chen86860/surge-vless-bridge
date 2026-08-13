@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/surge-vless-bridge.svg)](https://www.npmjs.com/package/surge-vless-bridge)
 [![npm downloads](https://img.shields.io/npm/dm/surge-vless-bridge.svg)](https://www.npmjs.com/package/surge-vless-bridge)
 
-[中文文档](./README.zh-CN.md)
+[中文文档](./README.zh-CN.md) · [Changelog](./CHANGELOG.md)
 
 A Node.js CLI that converts a VLESS subscription into Surge Mac `external` proxy entries backed by local `sing-box` configs.
 
@@ -84,7 +84,7 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
   "policyGroupName": "VLESS",
   "portStart": 2081,
   "addressResolver": {
-    "strategy": "system",
+    "strategy": "doh",
     "filterSurgeFakeIp": true,
     "dohEndpoint": "https://1.1.1.1/dns-query",
     "dnsServers": ["1.1.1.1", "8.8.8.8"]
@@ -112,14 +112,27 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 
 `addressResolver.strategy` can be:
 
-| Strategy | Description                                                                                  |
-| -------- | -------------------------------------------------------------------------------------------- |
-| `system` | Use Node.js system DNS resolution. This is the default.                                       |
-| `dns`    | Resolve with `addressResolver.dnsServers`, such as `["1.1.1.1", "8.8.8.8"]`.                 |
-| `doh`    | Resolve with `addressResolver.dohEndpoint`, then fall back to `addressResolver.dnsServers`.   |
-| `off`    | Do not write `addresses=` in generated Surge external proxy entries.                          |
+| Strategy | Description                                                                          |
+| -------- | ------------------------------------------------------------------------------------ |
+| `doh`    | Resolve with `addressResolver.dohEndpoint`. This is the default.                     |
+| `dns`    | Resolve with `addressResolver.dnsServers`, such as `["1.1.1.1", "8.8.8.8"]`.         |
+| `system` | Use Node.js system DNS resolution.                                                   |
+| `off`    | Do not write `addresses=` in generated Surge external proxy entries.                 |
 
-`addressResolver.filterSurgeFakeIp` defaults to `true`. It filters `198.18.0.0/15` addresses before writing `addresses=`, avoiding Surge fake-ip results being pinned into external proxy entries. If Surge's fake-ip DNS affects your system resolver, set `"strategy": "doh"` or `"strategy": "dns"`.
+Every strategy except `off` falls back to the other resolvers when it returns nothing usable, so a
+failing DoH endpoint or a fake-ip system resolver still produces a real address.
+
+Surge accepts a single value in `addresses=`. When a server resolves to several addresses, IPv4 is
+preferred; IPv6 is written only when no A record exists.
+
+`addressResolver.filterSurgeFakeIp` defaults to `true`. It filters `198.18.0.0/15` addresses before writing `addresses=`, avoiding Surge fake-ip results being pinned into external proxy entries.
+
+### Why the default is `doh`
+
+With Surge's enhanced mode enabled, system DNS answers with fake IPs in `198.18.0.0/15`. Resolving proxy
+server domains through the system resolver would pin those fake IPs into `addresses=`, so nodes fail to
+connect. `doh` bypasses the system resolver entirely, which means `sync` works without turning enhanced
+mode off. Set `"strategy": "system"` only if your network blocks DoH endpoints.
 
 You can also override fields at runtime:
 
