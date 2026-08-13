@@ -49,3 +49,12 @@ test('maps ws transport options', () => {
     headers: { Host: 'cdn.example' },
   });
 });
+
+test('omits TLS fields that do not exist in older sing-box builds', () => {
+  const outbound = parseVlessNode('vless://uuid-1@a.example:443?security=tls&sni=a.example#T', 0);
+
+  // record_fragment arrived in sing-box 1.12 and is only meaningful when enabled; emitting the
+  // default made configs unparsable on 1.11 and earlier.
+  assert.ok(!('record_fragment' in outbound.tls));
+  assert.equal(JSON.stringify(outbound).includes('record_fragment'), false);
+});

@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-08-13
+
+### Fixed
+
+- Generated configs no longer set `tls.record_fragment`. The option only exists from sing-box 1.12 and
+  was always written with its default value, so on older builds — including the 1.11.x releases still
+  used on macOS 10.15 — sing-box rejected every generated config with `json: unknown field`, exited
+  immediately, and Surge reported `External Proxy Process Terminated`
+  ([#5](https://github.com/chen86860/surge-vless-bridge/issues/5)).
+
 ## [1.3.0] - 2026-08-13
 
 ### Added
@@ -110,6 +120,7 @@ All notable changes to this project are documented here. The format follows
 Initial public releases: `init` / `sync` / `rebuild` / `restore` / `doctor` commands, VLESS
 subscription parsing, per-node sing-box config generation, Surge profile backup, and npm publishing.
 
+[1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.1.0

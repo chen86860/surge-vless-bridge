@@ -79,7 +79,8 @@ surge-vless-bridge doctor
 - 每次写入 Surge 配置前都会备份到 `backupDir`，`restore` 可以恢复最近一次备份。
 - 每次同步产生的节点配置会记录在 `manifest.json` 中，因此 `rebuild` 不会复活已从订阅里删除的节点。
 - 所有来源都没有解析出 VLESS 节点时，`sync` 拒绝改写配置，避免某个机场过期导致策略组被清空。
-- 生成的配置会经过 `sing-box check`。它只校验结构，**不能验证节点是否真的连得通**。
+- 生成的配置会经过 `sing-box check`，用的是**你本机安装的** sing-box：能查出不支持的选项和非法密钥，但
+  **不能验证节点是否真的连得通**。
 
 ## 配置文件
 

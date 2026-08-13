@@ -3,7 +3,6 @@ export type SingBoxTls = {
   server_name?: string;
   insecure?: boolean;
   alpn?: string[];
-  record_fragment?: boolean;
   utls?: {
     enabled: boolean;
     fingerprint: string;

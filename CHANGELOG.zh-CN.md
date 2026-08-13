@@ -5,6 +5,15 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.3.1] - 2026-08-13
+
+### 修复
+
+- 生成的配置不再写入 `tls.record_fragment`。该选项从 sing-box 1.12 才引入，而且写入的一直是默认值；在更早的
+  版本上（包括 macOS 10.15 仍在使用的 1.11.x），sing-box 会以 `json: unknown field` 拒绝每一个生成的配置并
+  立即退出，在 Surge 里表现为 `External Proxy Process Terminated`
+  （[#5](https://github.com/chen86860/surge-vless-bridge/issues/5)）。
+
 ## [1.3.0] - 2026-08-13
 
 ### 新增
@@ -96,6 +105,7 @@
 首批公开发布：`init` / `sync` / `rebuild` / `restore` / `doctor` 命令、VLESS 订阅解析、按节点生成
 sing-box 配置、Surge 配置备份，以及 npm 发布流程。
 
+[1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.1.0

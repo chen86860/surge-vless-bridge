@@ -49,11 +49,13 @@ export const parseVlessNode = (node: string, index: number): SingBoxVlessOutboun
   }
 
   if (security === 'tls' || security === 'reality') {
+    // `record_fragment` is only meaningful when enabled, and it does not exist before sing-box 1.12.
+    // Emitting the default made every generated config unparsable on older builds, which sing-box
+    // reports as `json: unknown field` and Surge shows as "External Proxy Process Terminated".
     outbound.tls = {
       enabled: true,
       insecure: toBoolean(insecure),
       alpn: ['http/1.1'],
-      record_fragment: false,
     };
 
     if (sni) {

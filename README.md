@@ -83,7 +83,8 @@ surge-vless-bridge doctor
   that have been removed from the subscription.
 - `sync` refuses to update the profile when no configured source yields a VLESS node, so one expired
   subscription cannot empty your policy group.
-- Generated configs are checked with `sing-box check`. This validates structure only — it does not test
+- Generated configs are checked with `sing-box check`, which validates the config against *your*
+  installed sing-box: it catches unknown or unsupported options and invalid keys, but it does not test
   whether a node actually connects.
 
 ## Config File
