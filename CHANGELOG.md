@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-13
+
+### Added
+
+- `sync` generates and validates every node in a staging directory before touching anything, so a
+  failure part-way through leaves both the Surge profile and the previous node configs untouched
+  (adapted from [#7](https://github.com/chen86860/surge-vless-bridge/pull/7), thanks to
+  [@MapleGu](https://github.com/MapleGu)).
+- Node configs produced by a sync are recorded in `manifest.json`, and `rebuild` reads it instead of
+  globbing the output directory. Installs without a manifest keep working through a glob fallback.
+- Generated configs are validated with `sing-box check`, capped at 8 parallel processes. This is a
+  structural check: it rejects malformed JSON and unknown outbound types, but accepts an outbound with
+  missing or nonsensical fields, so it is not a connectivity test.
+- A `node --test` suite of 26 tests, run in CI on Node 20, 22 and 24.
+
+### Fixed
+
+- `rebuild` no longer resurrects nodes that have been removed from the subscription. Node configs left
+  behind by a shrinking subscription are now deleted during `sync`.
+- Subscriptions are no longer Base64-decoded blindly. A plain-text list is detected and passed through,
+  the URL-safe alphabet is supported, and an unrecognised response — an HTML error page from an expired
+  account, for instance — is reported instead of decoding into mojibake and yielding zero nodes.
+- The subscription request times out after 15 seconds instead of hanging `sync` indefinitely.
+- Reality nodes without a public key are rejected at parse time. sing-box starts without one but every
+  handshake fails, which surfaces in Surge as a proxy that dies on each request.
+- `sync` refuses to update the profile when no configured source yields a VLESS node, and fails early
+  with a clear message when the Surge profile or the sing-box binary is missing.
+- CRLF line endings and duplicate links within a single subscription are handled.
+
 ## [1.2.0] - 2026-08-13
 
 ### Added
@@ -81,6 +110,7 @@ All notable changes to this project are documented here. The format follows
 Initial public releases: `init` / `sync` / `rebuild` / `restore` / `doctor` commands, VLESS
 subscription parsing, per-node sing-box config generation, Surge profile backup, and npm publishing.
 
+[1.3.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.1.0
 [1.0.8]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.0.8

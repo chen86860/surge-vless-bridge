@@ -73,6 +73,19 @@ surge-vless-bridge sync
 surge-vless-bridge doctor
 ```
 
+## How sync protects your profile
+
+- Nodes are generated and validated in a staging directory first; if anything fails, neither the Surge
+  profile nor the previous node configs are touched.
+- The Surge profile is backed up to `backupDir` before every write, and `restore` brings the latest
+  backup back.
+- Node configs produced by a sync are recorded in `manifest.json`, so `rebuild` never resurrects nodes
+  that have been removed from the subscription.
+- `sync` refuses to update the profile when no configured source yields a VLESS node, so one expired
+  subscription cannot empty your policy group.
+- Generated configs are checked with `sing-box check`. This validates structure only — it does not test
+  whether a node actually connects.
+
 ## Config File
 
 Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.

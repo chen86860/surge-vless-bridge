@@ -5,6 +5,31 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.3.0] - 2026-08-13
+
+### 新增
+
+- `sync` 先在临时目录里生成并校验全部节点，通过后再一次性落盘，因此中途失败不会动到 Surge 配置，也不会
+  破坏上一次同步的节点配置（改编自 [#7](https://github.com/chen86860/surge-vless-bridge/pull/7)，感谢
+  [@MapleGu](https://github.com/MapleGu)）。
+- 每次同步产生的节点配置会记录到 `manifest.json`，`rebuild` 据此重建，不再直接扫描整个目录；没有
+  manifest 的旧安装仍可回退到扫描方式。
+- 生成的配置会用 `sing-box check` 校验，最多 8 个进程并发。注意这只是结构校验：它能拒绝非法 JSON 和未知
+  outbound 类型，但缺字段或字段值离谱的配置照样能通过，**不等于连通性测试**。
+- 新增 26 个 `node --test` 测试，CI 在 Node 20 / 22 / 24 上运行。
+
+### 修复
+
+- `rebuild` 不再复活已从订阅中删除的节点；订阅节点减少时，多余的节点配置会在 `sync` 时清理掉。
+- 不再无条件对订阅内容做 Base64 解码。现在会先识别纯文本链接列表、支持 URL-safe 字母表，遇到无法识别的
+  响应（例如账号过期返回的 HTML 错误页）直接报错，而不是解码成乱码后同步出 0 个节点。
+- 订阅请求 15 秒超时，不再因为机场无响应而让 `sync` 无限挂起。
+- 缺少 public key 的 reality 节点在解析阶段就报错。sing-box 缺这个字段照样能启动，但握手必然失败，在 Surge
+  里表现为"一请求就断"的外部代理。
+- 所有来源都没有解析出 VLESS 节点时，`sync` 拒绝改写 Surge 配置；Surge 配置文件或 sing-box 可执行文件缺失
+  时提前报错并给出明确提示。
+- 正确处理 CRLF 换行，以及单个订阅内部的重复链接。
+
 ## [1.2.0] - 2026-08-13
 
 ### 新增
@@ -71,6 +96,7 @@
 首批公开发布：`init` / `sync` / `rebuild` / `restore` / `doctor` 命令、VLESS 订阅解析、按节点生成
 sing-box 配置、Surge 配置备份，以及 npm 发布流程。
 
+[1.3.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.1.0
 [1.0.8]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.0.8
