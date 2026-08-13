@@ -131,6 +131,8 @@ surge-vless-bridge doctor
 | `singBoxBinary`   | 自动检测（`which sing-box`）           | `sing-box` 可执行文件路径          |
 | `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | 每个节点的 sing-box 配置保存目录   |
 | `backupDir`       | `~/.config/surge-vless-bridge/backups` | Surge 配置备份目录                 |
+| `backupKeep`      | `20`                                   | 保留的备份数量，超出的旧备份自动清理 |
+| `autoReload`      | `true`                                 | 配置变更后自动让 Surge 重载        |
 | `addressResolver` | 见下方                                 | 为 `addresses=` 解析代理服务器域名 |
 
 `addressResolver.strategy` 可选：
@@ -170,7 +172,36 @@ surge-vless-bridge sync --subscription-url https://example.com/sub --group-name 
 | `surge-vless-bridge sync`    | 拉取订阅 → 生成 sing-box 配置 → 更新 Surge      |
 | `surge-vless-bridge rebuild` | 仅基于已有本地配置重建 Surge 区块（不访问网络） |
 | `surge-vless-bridge restore` | 恢复最近一次 Surge 配置备份                     |
-| `surge-vless-bridge doctor`  | 检查配置、路径及 Surge 必需区块是否正常         |
+| `surge-vless-bridge clean`   | 移除生成的节点配置与 Surge 中的托管区块         |
+| `surge-vless-bridge doctor`  | 检查配置、路径、端口及 Surge 必需区块是否正常   |
+
+### 预览同步结果
+
+`sync --dry-run` 会输出本次同步将生成的节点、端口和配置改动，但不写入任何文件：
+
+```bash
+surge-vless-bridge sync --dry-run
+```
+
+### 自动重载
+
+Surge 不会监听配置文件变化，同步后需要重载才会生效。如果开启了 HTTP API，本工具会自动触发重载。在 Surge
+配置的 `[General]` 中加入：
+
+```
+http-api = your-key@127.0.0.1:6171
+```
+
+未开启时会尝试使用 `surge-cli reload` 兜底。加 `--no-reload` 或设置 `"autoReload": false` 可以关闭该行为，
+`doctor` 会显示当前使用的是哪种方式。
+
+### 彻底移除
+
+`clean` 会删除生成的节点配置，并从 Surge 配置中移除托管区块和对应策略组，其余内容保持不变。执行前会先备份。
+
+```bash
+surge-vless-bridge clean
+```
 
 ---
 

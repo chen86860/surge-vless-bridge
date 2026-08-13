@@ -19,6 +19,8 @@ export type CliConfig = {
   proxyStartMarker: string;
   proxyEndMarker: string;
   portStart: number;
+  backupKeep: number;
+  autoReload: boolean;
   subscriptionOutputPath: string;
   requestHeaders: Record<string, string>;
   addressResolver: AddressResolverConfig;

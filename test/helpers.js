@@ -44,8 +44,10 @@ const makeConfig = async (label) => {
       outputDir: path.join(root, 'nodes'),
       backupDir: path.join(root, 'backups'),
       subscriptionOutputPath: path.join(root, 'vless_nodes.txt'),
-      // Resolution is disabled so tests never depend on DNS.
+      // Resolution is disabled so tests never depend on DNS, and reloading is off so a test never
+      // reaches a Surge instance running on the developer's machine.
       addressResolver: { ...defaults.addressResolver, strategy: 'off' },
+      autoReload: false,
     },
   };
 };

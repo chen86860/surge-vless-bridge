@@ -6,6 +6,35 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-08-13
+
+### Added
+
+- `sync --dry-run` reports the nodes, ports and profile changes a sync would produce without writing
+  anything.
+- `clean` removes the generated node configs and the managed block and policy group from the Surge
+  profile, leaving everything else intact. The profile is backed up first.
+- The Surge profile is reloaded automatically after `sync`, `rebuild` and `restore`, through the Surge
+  HTTP API (`http-api` in `[General]`) or `surge-cli` when available. Disable with `--no-reload` or
+  `"autoReload": false`.
+- `backupKeep` (default `20`) prunes old profile backups, which previously accumulated forever.
+- `help` shows the repository URL and where to report issues.
+
+### Changed
+
+- Unknown flags, unknown commands, missing flag values and non-numeric numeric flags are now errors.
+  A mistyped `--group-nmae` used to be ignored, so the command appeared to succeed while doing
+  something else.
+- `--flag=value` is accepted alongside `--flag value`.
+- The help text documents only the user-facing config path; the development path is no longer listed.
+
+### Fixed
+
+- `doctor` exits non-zero when a check fails, so scripts and CI can rely on it.
+- `doctor` verifies that `outputDir` and `backupDir` exist rather than always reporting OK, and reports
+  a missing directory before the first sync as a warning rather than a failure.
+- `doctor` reports the local port range in use and whether the Surge HTTP API is reachable.
+
 ## [1.3.1] - 2026-08-13
 
 ### Fixed
@@ -120,6 +149,7 @@ All notable changes to this project are documented here. The format follows
 Initial public releases: `init` / `sync` / `rebuild` / `restore` / `doctor` commands, VLESS
 subscription parsing, per-node sing-box config generation, Surge profile backup, and npm publishing.
 
+[1.4.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.1.0...v1.2.0

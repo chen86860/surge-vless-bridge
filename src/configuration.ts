@@ -101,6 +101,8 @@ export const getDefaultConfig = async (_cwd: string): Promise<CliConfig> => {
     proxyStartMarker: '# vless start',
     proxyEndMarker: '# vless end',
     portStart: 2081,
+    backupKeep: 20,
+    autoReload: true,
     subscriptionOutputPath: join(stateDir, 'vless_nodes.txt'),
     requestHeaders: { ...DEFAULT_HEADERS },
     addressResolver: { ...DEFAULT_ADDRESS_RESOLVER },
@@ -222,6 +224,7 @@ export const writeExampleConfig = async ({
     surgeConfigPath: defaults.surgeConfigPath,
     policyGroupName: defaults.policyGroupName,
     portStart: defaults.portStart,
+    addressResolver: { ...defaults.addressResolver },
   };
 
   await writeTextFile(resolvedConfigPath, `${JSON.stringify(example, null, 2)}\n`);

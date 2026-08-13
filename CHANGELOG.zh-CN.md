@@ -5,6 +5,32 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.4.0] - 2026-08-13
+
+### 新增
+
+- `sync --dry-run`：输出本次同步将生成的节点、端口和配置改动，不写入任何文件。
+- `clean` 命令：删除生成的节点配置，并从 Surge 配置中移除托管区块和对应策略组，其余内容保持不变；执行前
+  会先备份。
+- `sync`、`rebuild`、`restore` 之后自动让 Surge 重载配置，优先走 Surge HTTP API（`[General]` 里的
+  `http-api`），否则尝试 `surge-cli`。可用 `--no-reload` 或 `"autoReload": false` 关闭。
+- `backupKeep`（默认 `20`）：自动清理超出数量的旧备份，此前备份会无限堆积。
+- 帮助菜单显示仓库地址和问题反馈入口。
+
+### 变更
+
+- 未知 flag、未知命令、缺少取值、数字参数传入非数字，现在都会直接报错退出。此前拼错的 `--group-nmae` 会被
+  静默忽略，命令看起来执行成功，实际用的是别的配置。
+- 支持 `--flag=value` 写法。
+- 帮助菜单只展示用户实际使用的配置文件路径，移除了开发用路径的说明。
+
+### 修复
+
+- `doctor` 在存在失败项时以非 0 退出码结束，脚本和 CI 可以据此判断。
+- `doctor` 会真实检查 `outputDir` 和 `backupDir` 是否存在，不再一律显示 OK；首次同步前目录不存在只算
+  warning，不算失败。
+- `doctor` 新增本地端口占用范围，以及 Surge HTTP API 是否可用的检查。
+
 ## [1.3.1] - 2026-08-13
 
 ### 修复
@@ -105,6 +131,7 @@
 首批公开发布：`init` / `sync` / `rebuild` / `restore` / `doctor` 命令、VLESS 订阅解析、按节点生成
 sing-box 配置、Surge 配置备份，以及 npm 发布流程。
 
+[1.4.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.1.0...v1.2.0

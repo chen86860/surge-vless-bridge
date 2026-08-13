@@ -137,6 +137,8 @@ subscription that returns no VLESS nodes is reported as a warning rather than fa
 | `singBoxBinary`   | auto-detected via `which sing-box`     | Path to the `sing-box` binary                          |
 | `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | Where per-node sing-box configs are written            |
 | `backupDir`       | `~/.config/surge-vless-bridge/backups` | Where Surge profile backups are stored                 |
+| `backupKeep`      | `20`                                   | How many backups to keep; older ones are pruned        |
+| `autoReload`      | `true`                                 | Ask Surge to reload the profile after it changes       |
 | `addressResolver` | see below                              | How to resolve proxy server domains for `addresses=`   |
 
 `addressResolver.strategy` can be:
@@ -177,7 +179,38 @@ surge-vless-bridge sync --subscription-url https://example.com/sub --group-name 
 | `surge-vless-bridge sync`    | Fetch subscription → generate sing-box configs → update Surge |
 | `surge-vless-bridge rebuild` | Rebuild Surge block from existing local configs (no network)  |
 | `surge-vless-bridge restore` | Restore the latest Surge profile backup                       |
-| `surge-vless-bridge doctor`  | Validate config, paths, and required Surge markers            |
+| `surge-vless-bridge clean`   | Remove generated configs and the managed Surge block          |
+| `surge-vless-bridge doctor`  | Validate config, paths, ports and required Surge markers      |
+
+### Previewing a sync
+
+`sync --dry-run` reports the nodes, ports and profile changes a real sync would produce, and writes
+nothing:
+
+```bash
+surge-vless-bridge sync --dry-run
+```
+
+### Automatic reload
+
+Surge does not watch its profile, so a synced profile only takes effect after a reload. If the HTTP API
+is enabled, the CLI triggers it automatically. Add this to `[General]` in your Surge profile:
+
+```
+http-api = your-key@127.0.0.1:6171
+```
+
+`surge-cli reload` is used as a fallback when it is available. Pass `--no-reload`, or set
+`"autoReload": false`, to opt out. `doctor` reports which of these is in use.
+
+### Removing everything
+
+`clean` deletes the generated node configs and removes the managed block and policy group from the
+Surge profile, leaving the rest of the profile untouched. The profile is backed up first.
+
+```bash
+surge-vless-bridge clean
+```
 
 ---
 

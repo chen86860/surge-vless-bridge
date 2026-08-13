@@ -3,21 +3,50 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { HOME_CONFIG_FILE_PATH, loadCliConfig, writeExampleConfig } from './configuration';
+import { loadCliConfig, writeExampleConfig } from './configuration';
 import type { CliConfigInput } from './types/cli-config';
-import { rebuildSurgeFromLocalConfigs, restoreSurgeProfileBackup, runDoctor, syncSubscriptionToSurge } from './surge';
+import {
+  cleanManagedArtifacts,
+  rebuildSurgeFromLocalConfigs,
+  restoreSurgeProfileBackup,
+  runDoctor,
+  syncSubscriptionToSurge,
+} from './surge';
+
+const REPOSITORY_URL = 'https://github.com/chen86860/surge-vless-bridge';
+
+type FlagType = 'string' | 'number' | 'boolean';
 
 type ParsedArgs = {
   command: string;
-  options: Record<string, string | boolean>;
+  options: Record<string, string | number | boolean>;
   positionals: string[];
 };
+
+const FLAGS: Record<string, FlagType> = {
+  config: 'string',
+  'subscription-url': 'string',
+  'surge-config': 'string',
+  'sing-box-bin': 'string',
+  'output-dir': 'string',
+  'backup-dir': 'string',
+  'group-name': 'string',
+  'port-start': 'number',
+  'backup-keep': 'number',
+  'dry-run': 'boolean',
+  'no-reload': 'boolean',
+  force: 'boolean',
+  yes: 'boolean',
+  help: 'boolean',
+  version: 'boolean',
+};
+
+const COMMANDS = ['init', 'sync', 'rebuild', 'restore', 'doctor', 'clean', 'version', 'help'] as const;
 
 const readVersion = () => {
   try {
     const packageJsonPath = resolve(__dirname, '../package.json');
-    const packageJsonContent = readFileSync(packageJsonPath, 'utf8');
-    const parsed = JSON.parse(packageJsonContent) as { version?: string };
+    const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: string };
     return typeof parsed.version === 'string' ? parsed.version : 'unknown';
   } catch {
     return 'unknown';
@@ -27,13 +56,15 @@ const readVersion = () => {
 const VERSION = readVersion();
 
 const HELP_TEXT = `surge-vless-bridge v${VERSION}
+${REPOSITORY_URL}
 
 Commands:
-  init       Create a local config template
+  init       Create a config template
   sync       Fetch subscription, generate sing-box configs, backup and update Surge
   rebuild    Rebuild Surge external proxies from local sing-box configs only
   restore    Restore the latest backup or a specified backup file
-  doctor     Validate detected paths and Surge sections
+  clean      Remove generated node configs and the managed block from Surge
+  doctor     Validate detected paths, ports and Surge sections
   version    Show current version
   help       Show this help
 
@@ -46,24 +77,40 @@ Flags:
   --backup-dir <path>         Override Surge backup directory
   --group-name <name>         Override Surge policy group name
   --port-start <number>       Override the first local SOCKS port
+  --backup-keep <number>      Override how many backups to keep
+  --dry-run                   sync: report the changes without writing anything
+  --no-reload                 Do not ask Surge to reload the profile afterwards
+  --force                     init: overwrite an existing config
+  --yes                       clean: skip the confirmation prompt
   --version, -v               Show current version
-  --force                     Overwrite config on init
+  --help, -h                  Show this help
 
-Default config path:
-  Global install              ~/.config/surge-vless-bridge/config.json
-  Local development           ./.surge-vless-bridge.json
+Config file:
+  ~/.config/surge-vless-bridge/config.json
 
 Examples:
   surge-vless-bridge init
   surge-vless-bridge sync --subscription-url https://example.com/sub
+  surge-vless-bridge sync --dry-run
   surge-vless-bridge rebuild
   surge-vless-bridge doctor
-  surge-vless-bridge version
+
+Report issues at ${REPOSITORY_URL}/issues
 `;
 
+const ALIASES: Record<string, string> = {
+  v: 'version',
+  h: 'help',
+};
+
+// Unknown flags and unusable values are rejected rather than ignored: silently dropping a mistyped
+// `--group-nmae` looks like it worked and quietly writes the wrong policy group.
 const parseArgs = (argv: string[]): ParsedArgs => {
-  const [command = 'help', ...rest] = argv;
-  const options: Record<string, string | boolean> = {};
+  // A leading `-` means no command was given, as in `surge-vless-bridge --version`.
+  const hasCommand = argv[0] !== undefined && !argv[0].startsWith('-');
+  const command = hasCommand ? (argv[0] as string) : 'help';
+  const rest = hasCommand ? argv.slice(1) : argv;
+  const options: Record<string, string | number | boolean> = {};
   const positionals: string[] = [];
 
   for (let index = 0; index < rest.length; index += 1) {
@@ -72,81 +119,124 @@ const parseArgs = (argv: string[]): ParsedArgs => {
       continue;
     }
 
-    if (!token.startsWith('--')) {
+    if (!token.startsWith('-')) {
       positionals.push(token);
       continue;
     }
 
-    const key = token.slice(2);
-    const next = rest[index + 1];
-    if (!next || next.startsWith('--')) {
+    const raw = token.startsWith('--') ? token.slice(2) : token.slice(1);
+    const [name, inlineValue] = raw.includes('=')
+      ? [raw.slice(0, raw.indexOf('=')), raw.slice(raw.indexOf('=') + 1)]
+      : [raw, undefined];
+    const key = ALIASES[name] ?? name;
+    const type = FLAGS[key];
+
+    if (!type) {
+      throw new Error(`Unknown flag: ${token}\nRun \`surge-vless-bridge help\` to see the available flags.`);
+    }
+
+    if (type === 'boolean') {
+      if (inlineValue !== undefined) {
+        throw new Error(`Flag --${key} does not take a value.`);
+      }
+
       options[key] = true;
       continue;
     }
 
-    options[key] = next;
-    index += 1;
+    let value = inlineValue;
+    if (value === undefined) {
+      const next = rest[index + 1];
+      if (next === undefined || next.startsWith('-')) {
+        throw new Error(`Flag --${key} requires a value.`);
+      }
+
+      value = next;
+      index += 1;
+    }
+
+    if (type === 'number') {
+      const parsedValue = Number(value);
+      if (!Number.isFinite(parsedValue)) {
+        throw new Error(`Flag --${key} expects a number, received: ${value}`);
+      }
+
+      options[key] = parsedValue;
+      continue;
+    }
+
+    options[key] = value;
   }
 
   return { command, options, positionals };
 };
 
-const toOverrides = (options: Record<string, string | boolean>): CliConfigInput => {
-  const portStart = typeof options['port-start'] === 'string' ? Number(options['port-start']) : undefined;
-  const subscriptionUrl = typeof options['subscription-url'] === 'string' ? options['subscription-url'] : undefined;
+const stringOption = (options: ParsedArgs['options'], key: string) =>
+  typeof options[key] === 'string' ? (options[key] as string) : undefined;
+
+const numberOption = (options: ParsedArgs['options'], key: string) =>
+  typeof options[key] === 'number' ? (options[key] as number) : undefined;
+
+const toOverrides = (options: ParsedArgs['options']): CliConfigInput => {
+  const subscriptionUrl = stringOption(options, 'subscription-url');
 
   return {
     subscriptionUrl,
     subscriptionUrls: subscriptionUrl ? [subscriptionUrl] : undefined,
-    surgeConfigPath: typeof options['surge-config'] === 'string' ? options['surge-config'] : undefined,
-    singBoxBinary: typeof options['sing-box-bin'] === 'string' ? options['sing-box-bin'] : undefined,
-    outputDir: typeof options['output-dir'] === 'string' ? options['output-dir'] : undefined,
-    backupDir: typeof options['backup-dir'] === 'string' ? options['backup-dir'] : undefined,
-    policyGroupName: typeof options['group-name'] === 'string' ? options['group-name'] : undefined,
-    portStart: Number.isFinite(portStart) ? portStart : undefined,
+    surgeConfigPath: stringOption(options, 'surge-config'),
+    singBoxBinary: stringOption(options, 'sing-box-bin'),
+    outputDir: stringOption(options, 'output-dir'),
+    backupDir: stringOption(options, 'backup-dir'),
+    policyGroupName: stringOption(options, 'group-name'),
+    portStart: numberOption(options, 'port-start'),
+    backupKeep: numberOption(options, 'backup-keep'),
+    autoReload: options['no-reload'] === true ? false : undefined,
   };
 };
 
-const isUsingGlobalDefaultConfigPath = (configPath: string, hasExplicitConfigPath: boolean) => {
-  if (hasExplicitConfigPath) {
-    return false;
+const confirm = async (question: string) => {
+  if (!process.stdin.isTTY) {
+    throw new Error('Refusing to run without confirmation. Re-run with --yes.');
   }
 
-  const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (!home) {
-    return false;
+  const { createInterface } = await import('node:readline/promises');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question(`${question} [y/N] `);
+    return answer.trim().toLowerCase() === 'y';
+  } finally {
+    rl.close();
   }
-
-  return configPath === resolve(home, HOME_CONFIG_FILE_PATH);
 };
 
 const main = async () => {
   const parsed = parseArgs(process.argv.slice(2));
   const cwd = process.cwd();
 
-  if (parsed.command === 'version' || parsed.command === '--version' || parsed.command === '-v') {
+  if (parsed.command === 'version' || parsed.options.version) {
     console.log(VERSION);
     return;
   }
 
-  if (parsed.command === 'help' || parsed.command === '--help' || parsed.command === '-h') {
+  if (parsed.command === 'help' || parsed.options.help) {
     console.log(HELP_TEXT);
     return;
   }
 
+  if (!COMMANDS.includes(parsed.command as (typeof COMMANDS)[number])) {
+    throw new Error(`Unknown command: ${parsed.command}\nRun \`surge-vless-bridge help\` to see the commands.`);
+  }
+
   if (parsed.command === 'init') {
-    const hasExplicitConfigPath = typeof parsed.options.config === 'string';
-    const { configPath, warnings } = await writeExampleConfig({
+    const configPath = stringOption(parsed.options, 'config');
+    const created = await writeExampleConfig({
       cwd,
-      configPath: hasExplicitConfigPath ? (parsed.options.config as string) : undefined,
+      configPath,
       force: Boolean(parsed.options.force),
     });
 
-    console.log(`Created config template: ${configPath}`);
-    if (isUsingGlobalDefaultConfigPath(configPath, hasExplicitConfigPath)) {
-      console.log(`Global install detected. Your config file is at: ${configPath}`);
-    }
-    for (const warning of warnings) {
+    console.log(`Created config template: ${created.configPath}`);
+    for (const warning of created.warnings) {
       console.warn(`Warning: ${warning}`);
     }
     console.log('Fill subscriptionUrls before running `sync`.');
@@ -155,7 +245,7 @@ const main = async () => {
 
   const loaded = await loadCliConfig({
     cwd,
-    configPath: typeof parsed.options.config === 'string' ? parsed.options.config : undefined,
+    configPath: stringOption(parsed.options, 'config'),
     overrides: toOverrides(parsed.options),
   });
 
@@ -166,7 +256,15 @@ const main = async () => {
 
   switch (parsed.command) {
     case 'sync': {
-      const result = await syncSubscriptionToSurge(loaded.config);
+      const result = await syncSubscriptionToSurge(loaded.config, {
+        dryRun: parsed.options['dry-run'] === true,
+      });
+
+      if (result.dryRun) {
+        console.log(`Dry run: ${result.count} nodes would be written, nothing was changed.`);
+        break;
+      }
+
       console.log(`Synced ${result.count} nodes.`);
       console.log(`Backup saved to ${result.backupPath}`);
       break;
@@ -185,18 +283,28 @@ const main = async () => {
       console.log(`Restored Surge profile from ${restored}`);
       break;
     }
-    case 'doctor': {
-      await runDoctor(loaded.config);
+    case 'clean': {
+      if (!parsed.options.yes && !(await confirm('Remove all generated node configs and the Surge managed block?'))) {
+        console.log('Aborted.');
+        break;
+      }
+
+      const result = await cleanManagedArtifacts(loaded.config);
+      console.log(`Removed ${result.removedConfigs} node config${result.removedConfigs === 1 ? '' : 's'}.`);
+      console.log(`Backup saved to ${result.backupPath}`);
       break;
     }
-    default:
-      console.log(HELP_TEXT);
-      process.exitCode = 1;
+    case 'doctor': {
+      const { failures } = await runDoctor(loaded.config);
+      if (failures > 0) {
+        process.exitCode = 1;
+      }
+      break;
+    }
   }
 };
 
 main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  console.error(message);
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
