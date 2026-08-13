@@ -59,8 +59,7 @@ const version = () => {
   return cachedVersion;
 };
 
-const helpText = () => `surge-vless-bridge
-Use VLESS subscriptions in Surge Mac, backed by local sing-box.
+const helpText = () => `Use VLESS subscriptions in Surge Mac, backed by local sing-box.
 
 Usage:
   surge-vless-bridge <command> [flags]

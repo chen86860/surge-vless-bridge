@@ -56,11 +56,11 @@ test('help shows the metadata footer with version and links', async () => {
   const { code, stdout } = await runCli(['help']);
 
   assert.equal(code, 0);
-  assert.match(stdout, /^surge-vless-bridge$/m);
+  assert.match(stdout, /^Use VLESS subscriptions in Surge Mac/);
+  assert.match(stdout, /^Usage:\n {2}surge-vless-bridge <command> \[flags\]$/m);
   assert.match(stdout, /^Version {7}\d+\.\d+\.\d+$/m);
   assert.match(stdout, /^Homepage {6}https:\/\/github\.com\/chen86860\/surge-vless-bridge$/m);
   assert.match(stdout, /^Issues {8}https:\/\/github\.com\/chen86860\/surge-vless-bridge\/issues$/m);
-  assert.match(stdout, /^Usage:$/m);
 });
 
 test('help documents the config file path without the development path', async () => {
