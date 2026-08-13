@@ -41,12 +41,12 @@ open ~/.config/surge-vless-bridge/config.json
 
 ```json
 {
-  "subscriptionUrl": "https://your-provider.com/subscription",
+  "subscriptionUrls": ["https://your-provider.com/subscription"],
   "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/MyProfile.conf"
 }
 ```
 
-- **`subscriptionUrl`**：填入你的 VLESS 订阅地址。
+- **`subscriptionUrls`**：填入一个或多个 VLESS 订阅地址，所有订阅里的节点会合并到同一个 Surge 策略组。
 
 - **`surgeConfigPath`**：Surge 配置文件的绝对路径。获取方式：
   1. 点击 macOS **菜单栏**中的 Surge 图标
@@ -79,7 +79,13 @@ surge-vless-bridge doctor
 
 ```json
 {
-  "subscriptionUrl": "https://example.com/subscription",
+  "subscriptionUrls": [
+    "https://example.com/subscription-a",
+    "https://example.com/subscription-b"
+  ],
+  "vlessNodes": [
+    "vless://uuid@example.com:443?type=tcp&security=reality&pbk=public-key&sid=short-id&fp=chrome&sni=example.com&flow=xtls-rprx-vision#Example"
+  ],
   "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Config.conf",
   "policyGroupName": "VLESS",
   "portStart": 2081,
@@ -96,8 +102,12 @@ surge-vless-bridge doctor
 
 | 字段              | 说明                     |
 | ----------------- | ------------------------ |
-| `subscriptionUrl` | VLESS 订阅地址           |
+| `subscriptionUrls` | 一个或多个 VLESS 订阅地址 |
+| `vlessNodes` | 一个或多个原始 `vless://` 节点地址 |
 | `surgeConfigPath` | Surge 配置文件的绝对路径 |
+
+`subscriptionUrl` 仍然兼容，适合只有一个订阅地址的旧配置。
+`subscriptionUrl`、`subscriptionUrls`、`vlessNodes` 至少需要配置其中一种节点来源。
 
 **选填**
 

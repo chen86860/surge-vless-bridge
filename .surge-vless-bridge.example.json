@@ -1,5 +1,11 @@
 {
-  "subscriptionUrl": "https://example.com/subscription",
+  "subscriptionUrls": [
+    "https://example.com/subscription-a",
+    "https://example.com/subscription-b"
+  ],
+  "vlessNodes": [
+    "vless://uuid@example.com:443?type=tcp&security=reality&pbk=public-key&sid=short-id&fp=chrome&sni=example.com&flow=xtls-rprx-vision#Example"
+  ],
   "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Config.conf",
   "policyGroupName": "VLESS",
   "portStart": 2081,

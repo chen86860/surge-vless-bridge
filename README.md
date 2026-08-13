@@ -41,12 +41,12 @@ Fill in at minimum:
 
 ```json
 {
-  "subscriptionUrl": "https://your-provider.com/subscription",
+  "subscriptionUrls": ["https://your-provider.com/subscription"],
   "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/MyProfile.conf"
 }
 ```
 
-- **`subscriptionUrl`**: Your VLESS subscription URL.
+- **`subscriptionUrls`**: Your VLESS subscription URLs. Use one or more URLs; nodes from all subscriptions are merged into the same Surge policy group.
 
 - **`surgeConfigPath`**: Absolute path to your Surge profile. To find it:
   1. Click the Surge icon in the **macOS menu bar**
@@ -79,7 +79,13 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 
 ```json
 {
-  "subscriptionUrl": "https://example.com/subscription",
+  "subscriptionUrls": [
+    "https://example.com/subscription-a",
+    "https://example.com/subscription-b"
+  ],
+  "vlessNodes": [
+    "vless://uuid@example.com:443?type=tcp&security=reality&pbk=public-key&sid=short-id&fp=chrome&sni=example.com&flow=xtls-rprx-vision#Example"
+  ],
   "surgeConfigPath": "/Users/you/Library/Application Support/Surge/Profiles/Config.conf",
   "policyGroupName": "VLESS",
   "portStart": 2081,
@@ -96,8 +102,12 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 
 | Field             | Description                         |
 | ----------------- | ----------------------------------- |
-| `subscriptionUrl` | Your VLESS subscription URL         |
+| `subscriptionUrls` | One or more VLESS subscription URLs |
+| `vlessNodes` | One or more raw `vless://` node URLs |
 | `surgeConfigPath` | Absolute path to your Surge profile |
+
+`subscriptionUrl` is still supported for backward compatibility when you only have one subscription.
+At least one of `subscriptionUrl`, `subscriptionUrls`, or `vlessNodes` must be configured.
 
 **Optional**
 

@@ -119,6 +119,30 @@ type ResolverAttempt = {
   run: () => Promise<string[]>;
 };
 
+const ensureUniquePolicyName = (nodeName: string, seenNames: Map<string, number>) => {
+  const previousCount = seenNames.get(nodeName) ?? 0;
+  seenNames.set(nodeName, previousCount + 1);
+
+  if (previousCount === 0) {
+    return nodeName;
+  }
+
+  return `${nodeName} ${previousCount + 1}`;
+};
+
+const getSubscriptionUrls = (config: CliConfig) => {
+  const urls = Array.isArray(config.subscriptionUrls) && config.subscriptionUrls.length > 0
+    ? config.subscriptionUrls
+    : [config.subscriptionUrl];
+
+  return urls.filter((url): url is string => typeof url === 'string' && url.trim() !== '').map((url) => url.trim());
+};
+
+const getConfiguredVlessNodes = (config: CliConfig) =>
+  (config.vlessNodes ?? [])
+    .filter((node): node is string => typeof node === 'string' && node.trim() !== '')
+    .map((node) => node.trim());
+
 const resolveAddresses = async (server: string, resolverConfig: AddressResolverConfig) => {
   if (resolverConfig.strategy === 'off') {
     return [];
@@ -197,9 +221,9 @@ const buildExternalProxyLine = async ({
 };
 
 const ensureRequiredConfig = (config: CliConfig) => {
-  if (!config.subscriptionUrl) {
+  if (getSubscriptionUrls(config).length === 0 && getConfiguredVlessNodes(config).length === 0) {
     throw new Error(
-      'Missing subscriptionUrl. Run `surge-vless-bridge init` and fill the config, or pass --subscription-url.',
+      'Missing subscriptionUrl/subscriptionUrls/vlessNodes. Run `surge-vless-bridge init` and fill the config, or pass --subscription-url.',
     );
   }
 
@@ -248,27 +272,70 @@ const updatePolicyGroup = ({
   });
 };
 
-const updateProxyBlock = ({ surgeText, proxyLines }: { surgeText: string; proxyLines: string[] }) => {
+const removeLegacyManagedProxyLines = ({ surgeText, outputDir }: { surgeText: string; outputDir: string }) => {
+  const proxySectionPattern = /(\[Proxy\])([\s\S]*?)(?=\n\[|$)/;
+  const normalizedOutputDir = outputDir.replace(/\\/g, '/');
+
+  return surgeText.replace(proxySectionPattern, (_match: string, sectionTitle: string, sectionBody: string) => {
+    let insideManagedBlock = false;
+    const cleanedLines = sectionBody.split('\n').filter((line: string) => {
+      if (line.includes('# vless start')) {
+        insideManagedBlock = true;
+        return true;
+      }
+
+      if (line.includes('# vless end')) {
+        insideManagedBlock = false;
+        return true;
+      }
+
+      if (insideManagedBlock) {
+        return true;
+      }
+
+      const normalizedLine = line.replace(/\\/g, '/');
+      const isLegacyManagedProxy =
+        normalizedLine.includes('= external') &&
+        normalizedLine.includes(normalizedOutputDir) &&
+        /sing-box\[\d+\]\.json/.test(normalizedLine);
+
+      return !isLegacyManagedProxy;
+    });
+
+    return `${sectionTitle}${cleanedLines.join('\n')}`;
+  });
+};
+
+const updateProxyBlock = ({
+  surgeText,
+  proxyLines,
+  outputDir,
+}: {
+  surgeText: string;
+  proxyLines: string[];
+  outputDir: string;
+}) => {
   const proxyStartMarker = '# vless start';
   const proxyEndMarker = '# vless end';
+  const cleanedSurgeText = removeLegacyManagedProxyLines({ surgeText, outputDir });
 
   const blockPattern = new RegExp(
     `(${escapeRegExp(proxyStartMarker)})([\\s\\S]*?)(${escapeRegExp(proxyEndMarker)})`,
     'm',
   );
 
-  if (surgeText.includes(proxyStartMarker) && surgeText.includes(proxyEndMarker)) {
-    return surgeText.replace(blockPattern, (_, start, __, end) => `${start}\n${proxyLines.join('\n')}\n${end}`);
+  if (cleanedSurgeText.includes(proxyStartMarker) && cleanedSurgeText.includes(proxyEndMarker)) {
+    return cleanedSurgeText.replace(blockPattern, (_, start, __, end) => `${start}\n${proxyLines.join('\n')}\n${end}`);
   }
 
   const proxySectionPattern = /(\[Proxy\])([\s\S]*?)(?=\n\[|$)/;
   const proxyBlock = `\n${proxyStartMarker}\n${proxyLines.join('\n')}\n${proxyEndMarker}`;
 
-  if (!proxySectionPattern.test(surgeText)) {
+  if (!proxySectionPattern.test(cleanedSurgeText)) {
     throw new Error('Surge profile is missing the [Proxy] section.');
   }
 
-  return surgeText.replace(proxySectionPattern, (match) => {
+  return cleanedSurgeText.replace(proxySectionPattern, (match) => {
     const trimmed = match.replace(/\s*$/, '');
     return `${trimmed}${proxyBlock}\n`;
   });
@@ -287,6 +354,7 @@ const writeSurgeProfile = async ({
   const withProxyBlock = updateProxyBlock({
     surgeText: source,
     proxyLines,
+    outputDir: config.outputDir,
   });
   const withPolicyGroup = updatePolicyGroup({
     surgeText: withProxyBlock,
@@ -305,11 +373,12 @@ const generateConfigsFromOutbounds = async ({
   config: CliConfig;
 }) => {
   await ensureWritableDirs(config);
+  const seenNodeNames = new Map<string, number>();
 
   const generated = await Promise.all(
     outbounds.map(async (outbound, index) => {
       const port = config.portStart + index;
-      const nodeName = sanitizePolicyName(outbound.tag, index);
+      const nodeName = ensureUniquePolicyName(sanitizePolicyName(outbound.tag, index), seenNodeNames);
       const configPath = join(config.outputDir, `sing-box[${port}].json`);
       const serverConfig = parseTemplate({
         node: {
@@ -350,11 +419,20 @@ const generateConfigsFromOutbounds = async ({
 export const syncSubscriptionToSurge = async (config: CliConfig) => {
   ensureRequiredConfig(config);
 
-  const vlessNodes = await getVlessSubscriptionNodes({
-    subscriptionUrl: config.subscriptionUrl!,
-    requestHeaders: config.requestHeaders,
-    subscriptionOutputPath: config.subscriptionOutputPath,
-  });
+  const subscriptionUrls = getSubscriptionUrls(config);
+  const vlessNodesBySubscription = await Promise.all(
+    subscriptionUrls.map((subscriptionUrl) =>
+      getVlessSubscriptionNodes({
+        subscriptionUrl,
+        requestHeaders: config.requestHeaders,
+      }),
+    ),
+  );
+  const vlessNodes = [...vlessNodesBySubscription.flat(), ...getConfiguredVlessNodes(config)];
+  if (config.subscriptionOutputPath) {
+    await writeTextFile(config.subscriptionOutputPath, `${vlessNodes.join('\n')}\n`);
+  }
+
   const outbounds = vlessNodes.map((node, index) => parseVlessNode(node, index));
   const generated = await generateConfigsFromOutbounds({ outbounds, config });
   const backupPath = await backupSurgeProfile(config);
@@ -472,8 +550,14 @@ const findLatestBackup = async (backupDir: string) => {
 };
 
 export const runDoctor = async (config: CliConfig) => {
+  const subscriptionUrls = getSubscriptionUrls(config);
+  const vlessNodes = getConfiguredVlessNodes(config);
   const checks = [
-    ['subscriptionUrl', Boolean(config.subscriptionUrl), config.subscriptionUrl || 'missing'],
+    [
+      'nodeSources',
+      subscriptionUrls.length + vlessNodes.length > 0,
+      `${subscriptionUrls.length} subscription URLs, ${vlessNodes.length} direct VLESS nodes`,
+    ],
     [
       'surgeConfigPath',
       Boolean(config.surgeConfigPath) && (await pathExists(config.surgeConfigPath)),
