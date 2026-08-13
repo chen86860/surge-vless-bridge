@@ -52,11 +52,12 @@ test('rejects an unknown command', async () => {
   assert.match(stderr, /Unknown command: sink/);
 });
 
-test('help shows the version and the repository URL', async () => {
+test('help shows the metadata footer with version and links', async () => {
   const { code, stdout } = await runCli(['help']);
 
   assert.equal(code, 0);
-  assert.match(stdout, /surge-vless-bridge v\d+\.\d+\.\d+/);
+  assert.match(stdout, /^surge-vless-bridge$/m);
+  assert.match(stdout, /^Version {7}\d+\.\d+\.\d+$/m);
   assert.match(stdout, /^Homepage {6}https:\/\/github\.com\/chen86860\/surge-vless-bridge$/m);
   assert.match(stdout, /^Issues {8}https:\/\/github\.com\/chen86860\/surge-vless-bridge\/issues$/m);
   assert.match(stdout, /^Usage:$/m);

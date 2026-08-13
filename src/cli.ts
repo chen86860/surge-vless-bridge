@@ -55,7 +55,7 @@ const readVersion = () => {
 
 const VERSION = readVersion();
 
-const HELP_TEXT = `surge-vless-bridge v${VERSION}
+const HELP_TEXT = `surge-vless-bridge
 Turn VLESS subscriptions into Surge external proxies backed by local sing-box.
 
 Usage:
@@ -96,6 +96,7 @@ Examples:
   surge-vless-bridge sync --dry-run
   surge-vless-bridge doctor
 
+Version       ${VERSION}
 Config file   ~/.config/surge-vless-bridge/config.json
 Homepage      ${REPOSITORY_URL}
 Issues        ${REPOSITORY_URL}/issues
