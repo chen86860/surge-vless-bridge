@@ -130,12 +130,18 @@ const ensureUniquePolicyName = (nodeName: string, seenNames: Map<string, number>
   return `${nodeName} ${previousCount + 1}`;
 };
 
+// `subscriptionUrl` and `subscriptionUrls` are merged rather than one shadowing the other: a user
+// adding a second provider usually keeps the legacy single-URL field, and dropping it silently would
+// remove every node of their original subscription. The legacy field stays first so existing node
+// order, and therefore the assigned local ports, do not shift.
 const getSubscriptionUrls = (config: CliConfig) => {
-  const urls = Array.isArray(config.subscriptionUrls) && config.subscriptionUrls.length > 0
-    ? config.subscriptionUrls
-    : [config.subscriptionUrl];
+  const urls = [config.subscriptionUrl, ...(config.subscriptionUrls ?? [])];
 
-  return urls.filter((url): url is string => typeof url === 'string' && url.trim() !== '').map((url) => url.trim());
+  return [
+    ...new Set(
+      urls.filter((url): url is string => typeof url === 'string' && url.trim() !== '').map((url) => url.trim()),
+    ),
+  ];
 };
 
 const getConfiguredVlessNodes = (config: CliConfig) =>
@@ -420,14 +426,25 @@ export const syncSubscriptionToSurge = async (config: CliConfig) => {
   ensureRequiredConfig(config);
 
   const subscriptionUrls = getSubscriptionUrls(config);
+  const describeSubscription = (index: number) => `Subscription ${index + 1} of ${subscriptionUrls.length}`;
   const vlessNodesBySubscription = await Promise.all(
-    subscriptionUrls.map((subscriptionUrl) =>
-      getVlessSubscriptionNodes({
-        subscriptionUrl,
-        requestHeaders: config.requestHeaders,
-      }),
-    ),
+    subscriptionUrls.map(async (subscriptionUrl, index) => {
+      try {
+        return await getVlessSubscriptionNodes({
+          subscriptionUrl,
+          requestHeaders: config.requestHeaders,
+        });
+      } catch (error) {
+        throw new Error(`${describeSubscription(index)}: ${error instanceof Error ? error.message : error}`);
+      }
+    }),
   );
+  vlessNodesBySubscription.forEach((nodes, index) => {
+    if (nodes.length === 0) {
+      console.warn(`${describeSubscription(index)} returned no VLESS nodes.`);
+    }
+  });
+
   const vlessNodes = [...vlessNodesBySubscription.flat(), ...getConfiguredVlessNodes(config)];
   if (config.subscriptionOutputPath) {
     await writeTextFile(config.subscriptionOutputPath, `${vlessNodes.join('\n')}\n`);

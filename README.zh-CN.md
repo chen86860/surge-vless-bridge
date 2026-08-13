@@ -106,8 +106,12 @@ surge-vless-bridge doctor
 | `vlessNodes` | 一个或多个原始 `vless://` 节点地址 |
 | `surgeConfigPath` | Surge 配置文件的绝对路径 |
 
-`subscriptionUrl` 仍然兼容，适合只有一个订阅地址的旧配置。
-`subscriptionUrl`、`subscriptionUrls`、`vlessNodes` 至少需要配置其中一种节点来源。
+`subscriptionUrl` 仍然兼容。当 `subscriptionUrl` 与 `subscriptionUrls` 同时存在时，两者会合并去重，且
+`subscriptionUrl` 排在最前 —— 新增第二个机场不会导致原订阅丢失。`subscriptionUrl`、`subscriptionUrls`、
+`vlessNodes` 至少需要配置其中一种节点来源。
+
+所有来源的节点会合并进同一个策略组。重名节点自动追加序号（`HK 01 2`）；某个订阅没有解析出 VLESS 节点时
+只告警，不会中断整次同步。
 
 **选填**
 

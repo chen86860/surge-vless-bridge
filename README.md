@@ -106,8 +106,13 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 | `vlessNodes` | One or more raw `vless://` node URLs |
 | `surgeConfigPath` | Absolute path to your Surge profile |
 
-`subscriptionUrl` is still supported for backward compatibility when you only have one subscription.
-At least one of `subscriptionUrl`, `subscriptionUrls`, or `vlessNodes` must be configured.
+`subscriptionUrl` is still supported for backward compatibility. When both `subscriptionUrl` and
+`subscriptionUrls` are set, they are merged and deduplicated, with `subscriptionUrl` fetched first — so
+adding a second provider never drops the original one. At least one of `subscriptionUrl`,
+`subscriptionUrls`, or `vlessNodes` must be configured.
+
+Nodes from every source share one policy group. Duplicate names get a numeric suffix (`HK 01 2`), and a
+subscription that returns no VLESS nodes is reported as a warning rather than failing the sync.
 
 **Optional**
 

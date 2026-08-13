@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-13
+
+### Added
+
+- `subscriptionUrls` merges several VLESS subscriptions into a single Surge policy group
+  ([#4](https://github.com/chen86860/surge-vless-bridge/pull/4), thanks to
+  [@SKYhuangjing](https://github.com/SKYhuangjing)).
+- `vlessNodes` accepts raw `vless://` links in the config, for nodes that are not part of any
+  subscription.
+- Duplicate policy names are deduplicated with a numeric suffix (`HK 01 2`), so nodes that share a name
+  across providers no longer trigger Surge's `Policy already exists` error.
+- Generated external proxy lines left outside the `# vless start` / `# vless end` block by older
+  versions are cleaned up during `sync`.
+
+### Changed
+
+- `subscriptionUrl` and `subscriptionUrls` are merged and deduplicated instead of the latter shadowing
+  the former, with `subscriptionUrl` fetched first so existing node order and local ports stay stable.
+  Adding a second provider to an existing config no longer silently drops the original subscription.
+- The `doctor` check `subscriptionUrl` is now `nodeSources` and reports how many subscription URLs and
+  direct nodes are configured.
+
+### Fixed
+
+- A failing subscription reports which one failed (`Subscription 2 of 3`) and names the provider by
+  origin, without leaking the token carried in the URL path or query.
+- A subscription that returns no VLESS nodes logs a warning instead of contributing nothing silently.
+
 ## [1.1.0] - 2026-08-13
 
 ### Changed
@@ -53,6 +81,7 @@ All notable changes to this project are documented here. The format follows
 Initial public releases: `init` / `sync` / `rebuild` / `restore` / `doctor` commands, VLESS
 subscription parsing, per-node sing-box config generation, Surge profile backup, and npm publishing.
 
+[1.2.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.1.0
 [1.0.8]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.0.8
 [1.0.7]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.0.7

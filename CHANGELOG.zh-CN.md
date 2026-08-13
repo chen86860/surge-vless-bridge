@@ -5,6 +5,29 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.2.0] - 2026-08-13
+
+### 新增
+
+- `subscriptionUrls`：把多个 VLESS 订阅合并进同一个 Surge 策略组
+  （[#4](https://github.com/chen86860/surge-vless-bridge/pull/4)，感谢
+  [@SKYhuangjing](https://github.com/SKYhuangjing)）。
+- `vlessNodes`：支持在配置里直接写裸 `vless://` 链接，用于不属于任何订阅的节点。
+- 重名节点自动追加序号（`HK 01 2`），不同机场存在同名节点时不再触发 Surge 的 `Policy already exists` 错误。
+- `sync` 时清理旧版本遗留在 `# vless start` / `# vless end` 区块之外的 external 代理行。
+
+### 变更
+
+- `subscriptionUrl` 与 `subscriptionUrls` 改为合并去重，而不是后者覆盖前者；`subscriptionUrl` 排在最前，
+  保证既有节点顺序和本地端口不变。在原有配置上新增第二个机场，不会再静默丢掉原订阅。
+- `doctor` 的 `subscriptionUrl` 检查项改名为 `nodeSources`，会显示已配置的订阅数量和直填节点数量。
+
+### 修复
+
+- 订阅拉取失败时会指明是第几个订阅（`Subscription 2 of 3`），并且只用 origin 标识机场，不会泄露 URL
+  路径或查询串里的 token。
+- 某个订阅没有解析出 VLESS 节点时打印告警，不再静默地不产生任何节点。
+
 ## [1.1.0] - 2026-08-13
 
 ### 变更
@@ -48,6 +71,7 @@
 首批公开发布：`init` / `sync` / `rebuild` / `restore` / `doctor` 命令、VLESS 订阅解析、按节点生成
 sing-box 配置、Surge 配置备份，以及 npm 发布流程。
 
+[1.2.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.1.0
 [1.0.8]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.0.8
 [1.0.7]: https://github.com/chen86860/surge-vless-bridge/compare/v1.0.6...v1.0.7
