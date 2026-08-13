@@ -42,6 +42,7 @@
     "rebuild": "tsx src/cli.ts rebuild",
     "doctor": "tsx src/cli.ts doctor",
     "restore": "tsx src/cli.ts restore",
+    "test": "npm run build && node --test test/*.test.js",
     "prepack": "npm run build"
   },
   "files": [
