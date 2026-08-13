@@ -57,14 +57,15 @@ test('help shows the version and the repository URL', async () => {
 
   assert.equal(code, 0);
   assert.match(stdout, /surge-vless-bridge v\d+\.\d+\.\d+/);
-  assert.match(stdout, /https:\/\/github\.com\/chen86860\/surge-vless-bridge/);
-  assert.match(stdout, /Report issues at/);
+  assert.match(stdout, /^Homepage {6}https:\/\/github\.com\/chen86860\/surge-vless-bridge$/m);
+  assert.match(stdout, /^Issues {8}https:\/\/github\.com\/chen86860\/surge-vless-bridge\/issues$/m);
+  assert.match(stdout, /^Usage:$/m);
 });
 
 test('help documents the config file path without the development path', async () => {
   const { stdout } = await runCli(['--help']);
 
-  assert.match(stdout, /~\/\.config\/surge-vless-bridge\/config\.json/);
+  assert.match(stdout, /^Config file {3}~\/\.config\/surge-vless-bridge\/config\.json$/m);
   assert.doesNotMatch(stdout, /Local development/);
   assert.doesNotMatch(stdout, /\.surge-vless-bridge\.json/);
 });

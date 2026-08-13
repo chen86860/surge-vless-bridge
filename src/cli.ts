@@ -56,46 +56,49 @@ const readVersion = () => {
 const VERSION = readVersion();
 
 const HELP_TEXT = `surge-vless-bridge v${VERSION}
-${REPOSITORY_URL}
+Turn VLESS subscriptions into Surge external proxies backed by local sing-box.
+
+Usage:
+  surge-vless-bridge <command> [flags]
 
 Commands:
   init       Create a config template
-  sync       Fetch subscription, generate sing-box configs, backup and update Surge
-  rebuild    Rebuild Surge external proxies from local sing-box configs only
-  restore    Restore the latest backup or a specified backup file
-  clean      Remove generated node configs and the managed block from Surge
-  doctor     Validate detected paths, ports and Surge sections
-  version    Show current version
-  help       Show this help
+  sync       Fetch subscriptions, generate sing-box configs, update Surge
+  rebuild    Rebuild the Surge block from local sing-box configs only
+  restore    Restore the latest backup, or the one given as an argument
+  clean      Remove generated configs and the managed block from Surge
+  doctor     Check paths, ports and required Surge sections
+  version    Print the version
+  help       Print this help
 
-Flags:
-  --config <path>             Path to the JSON config file
-  --subscription-url <url>    Override subscription URL
-  --surge-config <path>       Override Surge profile path
-  --sing-box-bin <path>       Override sing-box executable path
-  --output-dir <path>         Override generated sing-box config directory
-  --backup-dir <path>         Override Surge backup directory
-  --group-name <name>         Override Surge policy group name
-  --port-start <number>       Override the first local SOCKS port
-  --backup-keep <number>      Override how many backups to keep
-  --dry-run                   sync: report the changes without writing anything
-  --no-reload                 Do not ask Surge to reload the profile afterwards
-  --force                     init: overwrite an existing config
-  --yes                       clean: skip the confirmation prompt
-  --version, -v               Show current version
-  --help, -h                  Show this help
+Config flags:
+  --config <path>            Config file to use
+  --subscription-url <url>   Subscription URL
+  --surge-config <path>      Surge profile path
+  --sing-box-bin <path>      sing-box executable
+  --output-dir <path>        Where node configs are written
+  --backup-dir <path>        Where profile backups are stored
+  --group-name <name>        Surge policy group name
+  --port-start <number>      First local SOCKS port
+  --backup-keep <number>     How many backups to keep
 
-Config file:
-  ~/.config/surge-vless-bridge/config.json
+Command flags:
+  --dry-run                  sync: preview the changes, write nothing
+  --no-reload                sync/rebuild/restore: skip the Surge reload
+  --force                    init: overwrite an existing config
+  --yes                      clean: skip the confirmation prompt
+  -v, --version              Print the version
+  -h, --help                 Print this help
 
 Examples:
   surge-vless-bridge init
-  surge-vless-bridge sync --subscription-url https://example.com/sub
+  surge-vless-bridge sync
   surge-vless-bridge sync --dry-run
-  surge-vless-bridge rebuild
   surge-vless-bridge doctor
 
-Report issues at ${REPOSITORY_URL}/issues
+Config file   ~/.config/surge-vless-bridge/config.json
+Homepage      ${REPOSITORY_URL}
+Issues        ${REPOSITORY_URL}/issues
 `;
 
 const ALIASES: Record<string, string> = {
