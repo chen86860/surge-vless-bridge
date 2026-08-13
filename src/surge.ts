@@ -41,11 +41,14 @@ const isSurgeFakeIp = (address: string) => {
   return first === 198 && (second === 18 || second === 19);
 };
 
-const uniqueRealAddresses = (addresses: string[], resolverConfig: AddressResolverConfig) => [
-  ...new Set(
-    addresses.filter((address) => isIP(address) && (!resolverConfig.filterSurgeFakeIp || !isSurgeFakeIp(address))),
-  ),
-];
+// Surge accepts a single value in `addresses=`, and A/AAAA records arrive in an unstable order.
+// IPv4 comes first so the written address is deterministic and usable on IPv4-only networks.
+const uniqueRealAddresses = (addresses: string[], resolverConfig: AddressResolverConfig) =>
+  [
+    ...new Set(
+      addresses.filter((address) => isIP(address) && (!resolverConfig.filterSurgeFakeIp || !isSurgeFakeIp(address))),
+    ),
+  ].sort((left, right) => Number(isIP(right) === 4) - Number(isIP(left) === 4));
 
 const resolveWithSystem = async (server: string) => {
   const records = await lookup(server, { all: true });
@@ -111,6 +114,11 @@ const sanitizePolicyName = (tag: string, index: number) => {
   return sanitized || `node${index + 1}`;
 };
 
+type ResolverAttempt = {
+  label: string;
+  run: () => Promise<string[]>;
+};
+
 const resolveAddresses = async (server: string, resolverConfig: AddressResolverConfig) => {
   if (resolverConfig.strategy === 'off') {
     return [];
@@ -120,28 +128,59 @@ const resolveAddresses = async (server: string, resolverConfig: AddressResolverC
     return uniqueRealAddresses([server], resolverConfig);
   }
 
-  try {
-    if (resolverConfig.strategy === 'doh') {
-      const dohAddresses = uniqueRealAddresses(
-        await resolveWithDoh(server, resolverConfig.dohEndpoint),
-        resolverConfig,
-      );
-      if (dohAddresses.length > 0) {
-        return dohAddresses;
+  const doh: ResolverAttempt = {
+    label: 'doh',
+    run: () => resolveWithDoh(server, resolverConfig.dohEndpoint),
+  };
+  const dns: ResolverAttempt = {
+    label: 'dns',
+    run: () => resolveWithDnsServers(server, resolverConfig.dnsServers),
+  };
+  const system: ResolverAttempt = {
+    label: 'system',
+    run: () => resolveWithSystem(server),
+  };
+
+  // Surge's enhanced mode answers system DNS with fake IPs (198.18.0.0/15), which would pin an
+  // unusable address into the external proxy line. Every strategy therefore falls back to the
+  // resolvers that bypass the system resolver before giving up.
+  const chain: ResolverAttempt[] =
+    resolverConfig.strategy === 'dns'
+      ? [dns, doh, system]
+      : resolverConfig.strategy === 'system'
+        ? [system, doh, dns]
+        : [doh, dns, system];
+
+  let sawFakeIp = false;
+
+  for (const attempt of chain) {
+    let addresses: string[];
+    try {
+      addresses = await attempt.run();
+    } catch (error) {
+      console.error(`Failed to resolve ${server} via ${attempt.label}:`, error);
+      continue;
+    }
+
+    const usable = uniqueRealAddresses(addresses, resolverConfig);
+    if (usable.length > 0) {
+      if (sawFakeIp) {
+        console.warn(`Resolved ${server} via ${attempt.label} after discarding Surge fake IP results.`);
       }
 
-      return uniqueRealAddresses(await resolveWithDnsServers(server, resolverConfig.dnsServers), resolverConfig);
+      return usable;
     }
 
-    if (resolverConfig.strategy === 'dns') {
-      return uniqueRealAddresses(await resolveWithDnsServers(server, resolverConfig.dnsServers), resolverConfig);
+    if (resolverConfig.filterSurgeFakeIp && addresses.some(isSurgeFakeIp)) {
+      sawFakeIp = true;
+      console.warn(
+        `Discarded Surge fake IP result for ${server} from ${attempt.label}; trying the next resolver.`,
+      );
     }
-
-    return uniqueRealAddresses(await resolveWithSystem(server), resolverConfig);
-  } catch (error) {
-    console.error(`Failed to resolve ${server}:`, error);
-    return [];
   }
+
+  console.error(`Failed to resolve a usable address for ${server}; the external proxy entry will omit addresses=.`);
+  return [];
 };
 
 const buildExternalProxyLine = async ({
