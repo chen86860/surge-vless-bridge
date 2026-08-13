@@ -5,9 +5,9 @@
 
 [English README](./README.md) · [更新日志](./CHANGELOG.zh-CN.md)
 
-基于 Node.js 的 CLI，把 VLESS 订阅转换为 Surge Mac 可用的 `external` 代理节点，底层由本地 `sing-box` 承接。
+**让 Surge Mac 支持 VLESS，底层由 sing-box 承接。** 基于 Node.js 的 CLI，把 VLESS 订阅（含 REALITY、XTLS Vision 节点）转换为 Surge Mac 可用的 `external` 外部代理节点。
 
-Surge Mac 不原生支持 VLESS。该工具自动拉取订阅、为每个节点生成 `sing-box` 配置、并保持 Surge 配置同步更新，让你继续使用 Surge 的规则、策略组和面板来使用 VLESS 节点。
+Surge Mac 不原生支持 VLESS 协议。该工具自动拉取订阅、为每个节点生成 `sing-box` 配置、并保持 Surge 配置同步更新，让你继续使用 Surge 的规则、策略组和面板来使用 VLESS 节点。
 
 ## 前置条件
 

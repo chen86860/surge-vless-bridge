@@ -1,7 +1,10 @@
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { Resolver, lookup } from 'node:dns/promises';
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { isIP } from 'node:net';
 import { basename, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 import { getVlessSubscriptionNodes } from './parse';
 import type { AddressResolverConfig, CliConfig } from './types/cli-config';
@@ -11,6 +14,10 @@ import { pathExists, readJsonFile, readTextFile, writeBinaryFile, writeTextFile 
 import { parseVlessNode } from './utils/parse-vless-node';
 
 const POLICY_REGEX_FILTER = /^((?!Remain|Expired|官网|如需|套餐|去除|剩余|距离|Reset|重置|流量).)+$/;
+const MANAGED_CONFIG_PATTERN = /^sing-box\[\d+\]\.json$/;
+const MANIFEST_FILE_NAME = 'manifest.json';
+const SING_BOX_CHECK_CONCURRENCY = 8;
+const SING_BOX_CHECK_TIMEOUT_MS = 15_000;
 const DOH_RECORD_TYPES = {
   A: 1,
   AAAA: 28,
@@ -23,6 +30,15 @@ type GeneratedNode = {
   server: string;
 };
 
+type StagedGeneratedNode = GeneratedNode & {
+  stagedConfigPath: string;
+};
+
+type ManagedConfigManifest = {
+  version: 1;
+  files: string[];
+};
+
 type SingBoxConfig = {
   outbounds?: Array<{
     tag?: string;
@@ -30,7 +46,26 @@ type SingBoxConfig = {
   }>;
 };
 
+const execFileAsync = promisify(execFile);
+
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Bounded so a large subscription does not spawn one sing-box process per node at once.
+const mapWithConcurrency = async <T, R>(items: T[], limit: number, run: (item: T) => Promise<R>) => {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await run(items[index]!);
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+};
 
 const isSurgeFakeIp = (address: string) => {
   if (isIP(address) !== 4) {
@@ -240,9 +275,81 @@ const ensureRequiredConfig = (config: CliConfig) => {
   }
 };
 
+// Checked before anything is generated: a wrong sing-box path produces nodes Surge can never start,
+// and the failure is far easier to understand here than as a Surge popup.
+const ensureRuntimePaths = async (config: CliConfig) => {
+  if (!config.surgeConfigPath || !(await pathExists(config.surgeConfigPath))) {
+    throw new Error(`Surge profile not found: ${config.surgeConfigPath || 'missing'}`);
+  }
+
+  if (!config.singBoxBinary || !(await pathExists(config.singBoxBinary))) {
+    throw new Error(`sing-box binary not found: ${config.singBoxBinary || 'missing'}`);
+  }
+};
+
 const ensureWritableDirs = async (config: CliConfig) => {
   await mkdir(config.outputDir, { recursive: true });
   await mkdir(config.backupDir, { recursive: true });
+};
+
+// `sing-box check` validates structure only: it rejects malformed JSON, unknown outbound types and
+// out-of-range values, but accepts an outbound with missing or nonsensical fields. It is a guard
+// against this tool generating structurally broken configs, not a connectivity test.
+const validateSingBoxConfig = async (singBoxBinary: string, configPath: string) => {
+  try {
+    await execFileAsync(singBoxBinary, ['check', '-c', configPath], {
+      maxBuffer: 1024 * 1024,
+      timeout: SING_BOX_CHECK_TIMEOUT_MS,
+    });
+  } catch (error) {
+    const stderr = error && typeof error === 'object' && 'stderr' in error ? String(error.stderr).trim() : String(error);
+    throw new Error(`sing-box rejected ${basename(configPath)}${stderr ? `: ${stderr}` : ''}`);
+  }
+};
+
+// The manifest records exactly which files the last sync produced. Without it `rebuild` globs the
+// output directory and resurrects nodes that have since been removed from the subscription.
+const readManagedConfigEntries = async (outputDir: string) => {
+  const manifestPath = join(outputDir, MANIFEST_FILE_NAME);
+  if (await pathExists(manifestPath)) {
+    const manifest = await readJsonFile<ManagedConfigManifest>(manifestPath);
+    if (
+      manifest.version !== 1 ||
+      !Array.isArray(manifest.files) ||
+      manifest.files.some((entry) => !MANAGED_CONFIG_PATTERN.test(entry))
+    ) {
+      throw new Error(`Invalid managed config manifest: ${manifestPath}`);
+    }
+
+    return [...new Set(manifest.files)].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  }
+
+  // No manifest yet: fall back to globbing so an install that predates the manifest still rebuilds.
+  return (await readdir(outputDir))
+    .filter((entry) => MANAGED_CONFIG_PATTERN.test(entry))
+    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+};
+
+const promoteGeneratedConfigs = async (config: CliConfig, generated: StagedGeneratedNode[]) => {
+  for (const entry of generated) {
+    await rename(entry.stagedConfigPath, entry.configPath);
+  }
+
+  const manifest: ManagedConfigManifest = {
+    version: 1,
+    files: generated.map((entry) => basename(entry.configPath)),
+  };
+  await writeTextFile(join(config.outputDir, MANIFEST_FILE_NAME), `${JSON.stringify(manifest, null, 2)}\n`);
+};
+
+const removeStaleConfigs = async (outputDir: string, generated: GeneratedNode[]) => {
+  const expected = new Set(generated.map((entry) => basename(entry.configPath)));
+  const staleFiles = (await readdir(outputDir)).filter(
+    (entry) => MANAGED_CONFIG_PATTERN.test(entry) && !expected.has(entry),
+  );
+
+  await Promise.all(staleFiles.map((entry) => rm(join(outputDir, entry), { force: true })));
+  return staleFiles.length;
 };
 
 export const backupSurgeProfile = async (config: CliConfig) => {
@@ -374,18 +481,20 @@ const writeSurgeProfile = async ({
 const generateConfigsFromOutbounds = async ({
   outbounds,
   config,
+  stagingDir,
 }: {
   outbounds: SingBoxVlessOutbound[];
   config: CliConfig;
+  stagingDir: string;
 }) => {
-  await ensureWritableDirs(config);
   const seenNodeNames = new Map<string, number>();
 
   const generated = await Promise.all(
     outbounds.map(async (outbound, index) => {
       const port = config.portStart + index;
       const nodeName = ensureUniquePolicyName(sanitizePolicyName(outbound.tag, index), seenNodeNames);
-      const configPath = join(config.outputDir, `sing-box[${port}].json`);
+      const fileName = `sing-box[${port}].json`;
+      const stagedConfigPath = join(stagingDir, fileName);
       const serverConfig = parseTemplate({
         node: {
           ...outbound,
@@ -394,15 +503,20 @@ const generateConfigsFromOutbounds = async ({
         port,
       });
 
-      await writeTextFile(configPath, `${JSON.stringify(serverConfig, null, 2)}\n`);
+      await writeTextFile(stagedConfigPath, `${JSON.stringify(serverConfig, null, 2)}\n`);
 
       return {
         nodeName,
         port,
-        configPath,
+        configPath: join(config.outputDir, fileName),
+        stagedConfigPath,
         server: outbound.server,
-      } satisfies GeneratedNode;
+      } satisfies StagedGeneratedNode;
     }),
+  );
+
+  await mapWithConcurrency(generated, SING_BOX_CHECK_CONCURRENCY, (entry) =>
+    validateSingBoxConfig(config.singBoxBinary, entry.stagedConfigPath),
   );
 
   const proxyLines = await Promise.all(
@@ -424,6 +538,8 @@ const generateConfigsFromOutbounds = async ({
 
 export const syncSubscriptionToSurge = async (config: CliConfig) => {
   ensureRequiredConfig(config);
+  await ensureRuntimePaths(config);
+  await ensureWritableDirs(config);
 
   const subscriptionUrls = getSubscriptionUrls(config);
   const describeSubscription = (index: number) => `Subscription ${index + 1} of ${subscriptionUrls.length}`;
@@ -446,24 +562,47 @@ export const syncSubscriptionToSurge = async (config: CliConfig) => {
   });
 
   const vlessNodes = [...vlessNodesBySubscription.flat(), ...getConfiguredVlessNodes(config)];
+
+  // Checked across all sources rather than per subscription: with several providers configured, one
+  // expired subscription should not be able to wipe the Surge profile.
+  if (vlessNodes.length === 0) {
+    throw new Error('No VLESS nodes from any configured source; refusing to update the Surge profile.');
+  }
+
   if (config.subscriptionOutputPath) {
     await writeTextFile(config.subscriptionOutputPath, `${vlessNodes.join('\n')}\n`);
   }
 
   const outbounds = vlessNodes.map((node, index) => parseVlessNode(node, index));
-  const generated = await generateConfigsFromOutbounds({ outbounds, config });
-  const backupPath = await backupSurgeProfile(config);
 
-  await writeSurgeProfile({
-    config,
-    proxyLines: generated.proxyLines,
-    nodeNames: generated.nodeNames,
-  });
+  // Everything is generated and validated in a staging directory first, so a failure part-way through
+  // leaves both the Surge profile and the previous node configs untouched.
+  const stagingDir = join(config.outputDir, `.staging-${randomUUID()}`);
+  await mkdir(stagingDir, { recursive: true });
 
-  return {
-    backupPath,
-    count: generated.nodeNames.length,
-  };
+  try {
+    const generated = await generateConfigsFromOutbounds({ outbounds, config, stagingDir });
+    const backupPath = await backupSurgeProfile(config);
+
+    await promoteGeneratedConfigs(config, generated.generated);
+    await writeSurgeProfile({
+      config,
+      proxyLines: generated.proxyLines,
+      nodeNames: generated.nodeNames,
+    });
+
+    const removedCount = await removeStaleConfigs(config.outputDir, generated.generated);
+    if (removedCount > 0) {
+      console.log(`Removed ${removedCount} node config${removedCount === 1 ? '' : 's'} no longer in the subscription.`);
+    }
+
+    return {
+      backupPath,
+      count: generated.nodeNames.length,
+    };
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true });
+  }
 };
 
 export const rebuildSurgeFromLocalConfigs = async (config: CliConfig) => {
@@ -473,9 +612,7 @@ export const rebuildSurgeFromLocalConfigs = async (config: CliConfig) => {
     );
   }
 
-  const entries = (await readdir(config.outputDir))
-    .filter((entry) => /^sing-box\[\d+\]\.json$/.test(entry))
-    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  const entries = await readManagedConfigEntries(config.outputDir);
   if (entries.length === 0) {
     throw new Error(`No sing-box configs found in ${config.outputDir}`);
   }
