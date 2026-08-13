@@ -43,20 +43,24 @@ const FLAGS: Record<string, FlagType> = {
 
 const COMMANDS = ['init', 'sync', 'rebuild', 'restore', 'doctor', 'clean', 'version', 'help'] as const;
 
-const readVersion = () => {
-  try {
-    const packageJsonPath = resolve(__dirname, '../package.json');
-    const parsed = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { version?: string };
-    return typeof parsed.version === 'string' ? parsed.version : 'unknown';
-  } catch {
-    return 'unknown';
+// Read on demand: most commands never report the version, and only `help` needs it inline.
+let cachedVersion: string | undefined;
+
+const version = () => {
+  if (cachedVersion === undefined) {
+    try {
+      const parsed = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf8')) as { version?: string };
+      cachedVersion = typeof parsed.version === 'string' ? parsed.version : 'unknown';
+    } catch {
+      cachedVersion = 'unknown';
+    }
   }
+
+  return cachedVersion;
 };
 
-const VERSION = readVersion();
-
-const HELP_TEXT = `surge-vless-bridge
-Turn VLESS subscriptions into Surge external proxies backed by local sing-box.
+const helpText = () => `surge-vless-bridge
+Use VLESS subscriptions in Surge Mac, backed by local sing-box.
 
 Usage:
   surge-vless-bridge <command> [flags]
@@ -96,7 +100,7 @@ Examples:
   surge-vless-bridge sync --dry-run
   surge-vless-bridge doctor
 
-Version       ${VERSION}
+Version       ${version()}
 Config file   ~/.config/surge-vless-bridge/config.json
 Homepage      ${REPOSITORY_URL}
 Issues        ${REPOSITORY_URL}/issues
@@ -218,12 +222,12 @@ const main = async () => {
   const cwd = process.cwd();
 
   if (parsed.command === 'version' || parsed.options.version) {
-    console.log(VERSION);
+    console.log(version());
     return;
   }
 
   if (parsed.command === 'help' || parsed.options.help) {
-    console.log(HELP_TEXT);
+    console.log(helpText());
     return;
   }
 
