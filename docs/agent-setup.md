@@ -29,24 +29,38 @@ Everything else has a working default. Do not invent values for `portStart`, `po
 
 ## Happy path
 
+Assume nothing is installed yet — check each prerequisite and install what is missing.
+
 ```bash
-# 1. Install (or use `npx surge-vless-bridge <command>` without installing)
+# 1. sing-box must exist on disk; install it if `which sing-box` finds nothing
+which sing-box || brew install sing-box
+
+# 2. Install the CLI (or use `npx surge-vless-bridge <command>` without installing)
 npm i -g surge-vless-bridge
 
-# 2. Create the config template; this PRINTS the path it wrote — read it from the output,
-#    do not assume it (see "Where the config file lands" below)
-surge-vless-bridge init
+# 3. Create the config. `init` is interactive for humans, so pass the answers as flags instead —
+#    it PRINTS the path it wrote; read it from the output rather than assuming it
+#    (see "Where the config file lands" below)
+surge-vless-bridge init --no-input --subscription-url "$URL" --surge-config "$PROFILE"
 
-# 3. Edit that file: fill subscriptionUrls, verify surgeConfigPath
-# 4. Preview — writes nothing
+# 4. Check the file: subscriptionUrls and surgeConfigPath must both be filled in
+# 5. Preview — writes nothing
 surge-vless-bridge sync --dry-run
 
-# 5. Apply, then verify
+# 6. Apply, then verify
 surge-vless-bridge sync
 surge-vless-bridge doctor
 ```
 
-Step 4 before step 5, always. `--dry-run` prints the node names and ports that a real sync would
+Confirm with the user before installing anything with `brew` or `npm -g`; both change their machine
+outside this project. If Homebrew is absent, say so and let the user choose how to install `sing-box`
+rather than installing Homebrew for them.
+
+The one thing you cannot provide is the Surge profile itself: the user must already have Surge Mac
+with a profile containing `[Proxy]` and `[Proxy Group]`. If those sections are missing, stop and tell
+them — the tool will not create them.
+
+Step 5 before step 6, always. `--dry-run` prints the node names and ports that a real sync would
 produce; show that list to the user before touching their profile.
 
 `doctor` exits non-zero when any check FAILs, so you can gate on its exit code.
@@ -88,11 +102,24 @@ Any config key can be overridden per-run by a flag (`--subscription-url`, `--sur
 `--group-name`, `--port-start`, …). Prefer editing the config file for anything permanent — flags
 passed on a command line end up in shell history.
 
+## `init` is interactive
+
+Run by a human on a terminal, `init` asks for the subscription URL and offers a numbered list of Surge
+profiles. You almost certainly cannot answer those questions:
+
+- **If you can pass the values**, use `init --no-input --subscription-url … --surge-config …`.
+- **If you cannot**, `init` detects the absent TTY and writes the plain template without asking, so a
+  bare `init` is safe too — you then edit the JSON yourself.
+- **Never try to feed keystrokes into the prompt.** If your shell tool does give the child a TTY,
+  `--no-input` is what keeps the run deterministic.
+
+`clean` is the other interactive command; see the confirmation note above.
+
 ## Commands
 
 | Command | Network | Writes Surge profile | Notes |
 | --- | --- | --- | --- |
-| `init` | no | no | Fails if the config exists; `--force` overwrites |
+| `init` | no | no | Interactive on a TTY — use `--no-input`. Fails if the config exists; `--force` overwrites |
 | `sync` | yes | yes | The main command. `--dry-run` to preview |
 | `rebuild` | no | yes | Re-emits the Surge block from existing local configs |
 | `restore` | no | yes | Latest backup, or `restore <path>` |

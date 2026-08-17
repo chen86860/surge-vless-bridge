@@ -45,10 +45,12 @@ const detectSingBoxBinary = async () => {
   };
 };
 
-const detectSurgeConfigPath = async () => {
+// Most recently modified first: that is the profile the user is most likely working in, and it is the
+// order `init` offers the candidates in.
+export const listSurgeProfiles = async () => {
   const home = process.env.HOME;
   if (!home) {
-    return '';
+    return [];
   }
 
   const profilesDir = join(home, 'Library/Application Support/Surge/Profiles');
@@ -58,10 +60,6 @@ const detectSurgeConfigPath = async () => {
     const candidates = entries
       .filter((entry) => entry.isFile() && entry.name.endsWith('.conf'))
       .map((entry) => join(profilesDir, entry.name));
-
-    if (candidates.length === 1) {
-      return candidates[0] ?? '';
-    }
 
     const sortedByMtime = await Promise.all(
       candidates.map(async (candidate) => ({
@@ -78,11 +76,13 @@ const detectSurgeConfigPath = async () => {
       return right.path.localeCompare(left.path);
     });
 
-    return sortedByMtime[0]?.path ?? '';
+    return sortedByMtime;
   } catch {
-    return '';
+    return [];
   }
 };
+
+const detectSurgeConfigPath = async () => (await listSurgeProfiles())[0]?.path ?? '';
 
 export const getDefaultConfig = async (_cwd: string): Promise<CliConfig> => {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? '.';
@@ -122,6 +122,9 @@ const resolveGitRoot = (cwd: string): string | undefined => {
 
   return undefined;
 };
+
+export const resolveConfigPath = (cwd: string, configPath?: string) =>
+  configPath ? resolve(cwd, configPath) : resolveDefaultConfigPath(cwd);
 
 const resolveDefaultConfigPath = (cwd: string) => {
   const gitRoot = resolveGitRoot(cwd);
@@ -183,7 +186,7 @@ export const loadCliConfig = async ({
   overrides?: CliConfigInput;
 }) => {
   const defaults = await getDefaultConfig(cwd);
-  const resolvedConfigPath = configPath ? resolve(cwd, configPath) : resolveDefaultConfigPath(cwd);
+  const resolvedConfigPath = resolveConfigPath(cwd, configPath);
 
   if (!(await pathExists(resolvedConfigPath))) {
     return {
@@ -205,23 +208,33 @@ export const writeExampleConfig = async ({
   cwd,
   configPath,
   force,
+  values,
 }: {
   cwd: string;
   configPath?: string;
   force?: boolean;
+  // Answers collected by `init` when it can prompt. Anything absent falls back to the template
+  // placeholder, so a skipped question still leaves an editable file behind.
+  values?: { subscriptionUrls?: string[]; vlessNodes?: string[]; surgeConfigPath?: string };
 }) => {
   const defaults = await getDefaultConfig(cwd);
   const singBoxBinary = await detectSingBoxBinary();
-  const resolvedConfigPath = configPath ? resolve(cwd, configPath) : resolveDefaultConfigPath(cwd);
+  const resolvedConfigPath = resolveConfigPath(cwd, configPath);
 
   if (!force && (await pathExists(resolvedConfigPath))) {
     throw new Error(`Config file already exists: ${resolvedConfigPath}`);
   }
 
+  // Values reach this file from a prompt, a flag, or a script, and only the prompt trims its own
+  // input. Padding survives `sync` either way — every consumer trims — but it should not be baked
+  // into a file the user opens and edits later.
+  const clean = (values?: string[]) => values?.map((value) => value.trim()).filter(Boolean) ?? [];
+  const subscriptionUrls = clean(values?.subscriptionUrls);
+
   const example: CliConfigInput = {
-    subscriptionUrls: [''],
-    vlessNodes: [],
-    surgeConfigPath: defaults.surgeConfigPath,
+    subscriptionUrls: subscriptionUrls.length ? subscriptionUrls : [''],
+    vlessNodes: clean(values?.vlessNodes),
+    surgeConfigPath: values?.surgeConfigPath?.trim() || defaults.surgeConfigPath,
     policyGroupName: defaults.policyGroupName,
     portStart: defaults.portStart,
     addressResolver: { ...defaults.addressResolver },

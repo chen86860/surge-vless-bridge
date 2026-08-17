@@ -5,6 +5,27 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.5.0] - 2026-08-17
+
+### 新增
+
+- `init` 改为交互式：先询问订阅地址（也接受原始 `vless://` 链接，会写入 `vlessNodes`），再从列表中选择
+  Surge 配置文件，列表显示每个文件的最后修改时间，可用 ↑/↓ 或数字键选择。订阅地址回车跳过、配置文件按 Esc
+  跳过，跳过的项之后仍可手动填写。
+- `--no-input`：不作任何询问，直接写出配置模板。`init` 也会自行检测 TTY 缺失，因此在 agent、CI 或管道中
+  不会卡住等待输入。
+- 新增 [docs/agent-setup.md](./docs/agent-setup.md)，面向 AI agent 的操作指南：命令顺序、配置文件的落盘
+  规则、`doctor` 输出如何解读，以及哪些命令必须先经用户确认。
+
+### 变更
+
+- `init` 结束时会回显记录到的内容 —— 节点来源（凭据部分打码）和选中的 Surge 配置文件 —— 并给出下一条应当
+  执行的命令。
+- 未探测到 Surge 配置文件时，`init` 会说明去哪里获取路径，并支持从 Finder 直接把文件拖进终端：拖入的
+  shell 转义路径会被还原，而不是原样存进配置。
+- 传给 `init` 的值在写入前统一去除首尾空白，`--subscription-url` 带空格不再把空白写进配置文件。
+- `init` 在提问之前先检查配置文件是否已存在，不再等用户答完才拒绝覆盖。
+
 ## [1.4.0] - 2026-08-13
 
 ### 新增
@@ -131,6 +152,7 @@
 首批公开发布：`init` / `sync` / `rebuild` / `restore` / `doctor` 命令、VLESS 订阅解析、按节点生成
 sing-box 配置、Surge 配置备份，以及 npm 发布流程。
 
+[1.5.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.2.0...v1.3.0

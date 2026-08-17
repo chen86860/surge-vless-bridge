@@ -14,28 +14,31 @@ Surge Mac 不原生支持 VLESS 协议。该工具自动拉取订阅、为每个
 - 已安装 [sing-box](https://github.com/SagerNet/sing-box)（`brew install sing-box`）
 - Surge Mac 配置文件中包含 `[Proxy]` 和 `[Proxy Group]` 区块
 
-## 安装
-
-```bash
-npm i -g surge-vless-bridge
-```
-
 ## 让 AI Agent 帮你完成配置
 
-想让 Claude Code、Cursor、Codex 之类的 agent 代劳？把 [docs/agent-setup.md](./docs/agent-setup.md)
-交给它即可：里面写清了命令顺序、配置文件的落盘位置、`doctor` 输出怎么读，以及哪些命令必须先经过你确认。
+把下面这段话丢给 Claude Code、Cursor、Codex 之类的 agent，检测并安装 `sing-box`
+和 CLI、生成配置、同步、验证，整套流程它都能完成：
 
 ```text
 阅读 https://github.com/chen86860/surge-vless-bridge/blob/master/docs/agent-setup.md
 然后帮我配置好 surge-vless-bridge
 ```
 
-Agent 会向你索要订阅地址并确认 Surge 配置文件路径，其余项都有默认值；在真正写入之前，它应当先用
-`sync --dry-run` 给你看一遍改动。
+[docs/agent-setup.md](./docs/agent-setup.md) 里写清了命令顺序、配置文件的位置、`doctor` 输出怎么读，
+以及哪些命令必须先经过你确认。Agent 会向你索要订阅地址并确认 Surge 配置文件路径，其余项都有默认值；在真正
+写入之前，它会先用 `sync --dry-run` 给你看一遍改动。
 
-想自己动手配置的话，继续往下看。
+想自己动手？往下看手动配置。
 
-## 快速开始
+## 手动配置
+
+### 安装
+
+```bash
+npm i -g surge-vless-bridge
+```
+
+### 快速开始
 
 **1. 生成配置文件：**
 
@@ -43,9 +46,11 @@ Agent 会向你索要订阅地址并确认 Surge 配置文件路径，其余项�
 surge-vless-bridge init
 ```
 
-配置文件写入 `~/.config/surge-vless-bridge/config.json`，命令执行后会打印具体路径。
+`init` 会先询问订阅地址，再用 ↑/↓ 选择 Surge 配置文件，然后写入
+`~/.config/surge-vless-bridge/config.json` 并打印具体路径。订阅地址直接回车、配置文件按 Esc 即可跳过，
+之后手动填写；加 `--no-input` 则跳过全部提问，只写模板。
 
-**2. 编辑配置文件：**
+**2. 编辑配置文件**（仅在跳过了提问时需要）：
 
 ```bash
 # 用 init 打印的路径打开文件，例如：
@@ -180,7 +185,7 @@ surge-vless-bridge sync --subscription-url https://example.com/sub --group-name 
 
 | 命令                         | 说明                                            |
 | ---------------------------- | ----------------------------------------------- |
-| `surge-vless-bridge init`    | 生成配置模板，自动检测默认值                    |
+| `surge-vless-bridge init`    | 生成配置文件，交互询问订阅地址与 Surge 配置路径 |
 | `surge-vless-bridge sync`    | 拉取订阅 → 生成 sing-box 配置 → 更新 Surge      |
 | `surge-vless-bridge rebuild` | 仅基于已有本地配置重建 Surge 区块（不访问网络） |
 | `surge-vless-bridge restore` | 恢复最近一次 Surge 配置备份                     |

@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-17
+
+### Added
+
+- `init` is interactive. It asks for the subscription URL — a raw `vless://` link is accepted too, and
+  is stored under `vlessNodes` — then lets you pick a Surge profile from a list showing each one's
+  last modified time, navigated with ↑/↓ or the number keys. Enter skips the URL, Esc skips the
+  profile, and anything skipped can still be filled in by hand afterwards.
+- `--no-input` writes the config template without asking anything. `init` also detects a missing TTY
+  on its own, so it never blocks under an agent, in CI, or behind a pipe.
+- [docs/agent-setup.md](./docs/agent-setup.md), a guide for driving the CLI with an AI agent: command
+  order, config path rules, how to read `doctor`, and which commands must not run unconfirmed.
+
+### Changed
+
+- `init` reports what it recorded — the node source with its credentials redacted, and the chosen
+  Surge profile — followed by the next command to run.
+- When no Surge profile is detected, `init` explains where to find the path in Surge and accepts the
+  file dragged in from Finder, unescaping it rather than storing the shell-escaped string.
+- Values passed to `init` are trimmed before they are written, so a padded `--subscription-url` no
+  longer leaves whitespace in the config file.
+- `init` checks for an existing config before it asks anything, instead of collecting answers and then
+  refusing to overwrite.
+
 ## [1.4.0] - 2026-08-13
 
 ### Added
@@ -149,6 +173,7 @@ All notable changes to this project are documented here. The format follows
 Initial public releases: `init` / `sync` / `rebuild` / `restore` / `doctor` commands, VLESS
 subscription parsing, per-node sing-box config generation, Surge profile backup, and npm publishing.
 
+[1.5.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.2.0...v1.3.0

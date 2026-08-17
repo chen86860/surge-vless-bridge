@@ -14,29 +14,33 @@ Surge Mac does not natively support the VLESS protocol. This tool bridges the ga
 - [sing-box](https://github.com/SagerNet/sing-box) installed (`brew install sing-box`)
 - Surge Mac with a profile containing `[Proxy]` and `[Proxy Group]` sections
 
-## Install
-
-```bash
-npm i -g surge-vless-bridge
-```
-
 ## Setting this up with an AI agent
 
-Prefer to let Claude Code, Cursor, Codex or a similar agent do the setup? Point it at
-[docs/agent-setup.md](./docs/agent-setup.md) — it covers the command order, the config path rules, how
-to read `doctor`, and which commands must not run without your confirmation.
+Nothing to install first. Paste this into Claude Code, Cursor, Codex or a similar agent and it handles
+the whole setup — checking for and installing `sing-box` and the CLI, creating the config, syncing, and
+verifying:
 
 ```text
 Read https://github.com/chen86860/surge-vless-bridge/blob/master/docs/agent-setup.md
 and set up surge-vless-bridge for me.
 ```
 
-The agent will ask you for your subscription URL and confirm your Surge profile path; everything else
-has a sensible default. It should preview with `sync --dry-run` before writing anything.
+[docs/agent-setup.md](./docs/agent-setup.md) tells the agent the command order, the config path rules,
+how to read `doctor`, and which commands must not run without your confirmation. It will ask you for
+your subscription URL and confirm your Surge profile path; everything else has a sensible default, and
+it previews with `sync --dry-run` before writing anything.
 
-Setting it up by hand instead? Continue below.
+Prefer to do it yourself? Follow the manual setup below.
 
-## Quick Start
+## Manual setup
+
+### Install
+
+```bash
+npm i -g surge-vless-bridge
+```
+
+### Quick Start
 
 **1. Create a config file:**
 
@@ -44,9 +48,12 @@ Setting it up by hand instead? Continue below.
 surge-vless-bridge init
 ```
 
-This writes the config template to `~/.config/surge-vless-bridge/config.json` and prints the exact path.
+`init` asks for your subscription URL, then lets you pick a Surge profile with ↑/↓, and writes
+`~/.config/surge-vless-bridge/config.json` — printing the exact path. Press Enter to skip the URL or
+Esc to skip the profile and fill either in by hand later. Pass `--no-input` to skip both and just
+write the template.
 
-**2. Edit the config file:**
+**2. Edit the config file** (only if you skipped a question):
 
 ```bash
 # open the file printed by init, e.g.
@@ -188,7 +195,7 @@ surge-vless-bridge sync --subscription-url https://example.com/sub --group-name 
 
 | Command                      | Description                                                   |
 | ---------------------------- | ------------------------------------------------------------- |
-| `surge-vless-bridge init`    | Create a config template with detected defaults               |
+| `surge-vless-bridge init`    | Create a config, asking for the subscription and Surge profile |
 | `surge-vless-bridge sync`    | Fetch subscription → generate sing-box configs → update Surge |
 | `surge-vless-bridge rebuild` | Rebuild Surge block from existing local configs (no network)  |
 | `surge-vless-bridge restore` | Restore the latest Surge profile backup                       |
