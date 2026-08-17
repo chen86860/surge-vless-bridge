@@ -1,3 +1,5 @@
+
+
 # surge-vless-bridge
 
 [![npm version](https://img.shields.io/npm/v/surge-vless-bridge.svg)](https://www.npmjs.com/package/surge-vless-bridge)
@@ -178,7 +180,7 @@ surge-vless-bridge sync --subscription-url https://example.com/sub --group-name 
 | `surge-vless-bridge init`    | Create a config template with detected defaults               |
 | `surge-vless-bridge sync`    | Fetch subscription → generate sing-box configs → update Surge |
 | `surge-vless-bridge rebuild` | Rebuild Surge block from existing local configs (no network)  |
-| `surge-vless-bridge restore` | Restore the latest Surge profile backup                       |
+| `surge-vless-bridge restore` | Restore the latest Surge profile backup (or a backup path if given) |
 | `surge-vless-bridge clean`   | Remove generated configs and the managed Surge block          |
 | `surge-vless-bridge doctor`  | Validate config, paths, ports and required Surge markers      |
 
