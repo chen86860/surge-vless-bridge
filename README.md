@@ -20,6 +20,22 @@ Surge Mac does not natively support the VLESS protocol. This tool bridges the ga
 npm i -g surge-vless-bridge
 ```
 
+## Setting this up with an AI agent
+
+Prefer to let Claude Code, Cursor, Codex or a similar agent do the setup? Point it at
+[docs/agent-setup.md](./docs/agent-setup.md) — it covers the command order, the config path rules, how
+to read `doctor`, and which commands must not run without your confirmation.
+
+```text
+Read https://github.com/chen86860/surge-vless-bridge/blob/master/docs/agent-setup.md
+and set up surge-vless-bridge for me.
+```
+
+The agent will ask you for your subscription URL and confirm your Surge profile path; everything else
+has a sensible default. It should preview with `sync --dry-run` before writing anything.
+
+Setting it up by hand instead? Continue below.
+
 ## Quick Start
 
 **1. Create a config file:**
@@ -83,7 +99,7 @@ surge-vless-bridge doctor
   that have been removed from the subscription.
 - `sync` refuses to update the profile when no configured source yields a VLESS node, so one expired
   subscription cannot empty your policy group.
-- Generated configs are checked with `sing-box check`, which validates the config against *your*
+- Generated configs are checked with `sing-box check`, which validates the config against _your_
   installed sing-box: it catches unknown or unsupported options and invalid keys, but it does not test
   whether a node actually connects.
 
@@ -93,10 +109,7 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 
 ```json
 {
-  "subscriptionUrls": [
-    "https://example.com/subscription-a",
-    "https://example.com/subscription-b"
-  ],
+  "subscriptionUrls": ["https://example.com/subscription-a", "https://example.com/subscription-b"],
   "vlessNodes": [
     "vless://uuid@example.com:443?type=tcp&security=reality&pbk=public-key&sid=short-id&fp=chrome&sni=example.com&flow=xtls-rprx-vision#Example"
   ],
@@ -114,11 +127,11 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 
 **Required**
 
-| Field             | Description                         |
-| ----------------- | ----------------------------------- |
-| `subscriptionUrls` | One or more VLESS subscription URLs |
-| `vlessNodes` | One or more raw `vless://` node URLs |
-| `surgeConfigPath` | Absolute path to your Surge profile |
+| Field              | Description                          |
+| ------------------ | ------------------------------------ |
+| `subscriptionUrls` | One or more VLESS subscription URLs  |
+| `vlessNodes`       | One or more raw `vless://` node URLs |
+| `surgeConfigPath`  | Absolute path to your Surge profile  |
 
 `subscriptionUrl` is still supported for backward compatibility. When both `subscriptionUrl` and
 `subscriptionUrls` are set, they are merged and deduplicated, with `subscriptionUrl` fetched first — so
@@ -143,12 +156,12 @@ subscription that returns no VLESS nodes is reported as a warning rather than fa
 
 `addressResolver.strategy` can be:
 
-| Strategy | Description                                                                          |
-| -------- | ------------------------------------------------------------------------------------ |
-| `doh`    | Resolve with `addressResolver.dohEndpoint`. This is the default.                     |
-| `dns`    | Resolve with `addressResolver.dnsServers`, such as `["1.1.1.1", "8.8.8.8"]`.         |
-| `system` | Use Node.js system DNS resolution.                                                   |
-| `off`    | Do not write `addresses=` in generated Surge external proxy entries.                 |
+| Strategy | Description                                                                  |
+| -------- | ---------------------------------------------------------------------------- |
+| `doh`    | Resolve with `addressResolver.dohEndpoint`. This is the default.             |
+| `dns`    | Resolve with `addressResolver.dnsServers`, such as `["1.1.1.1", "8.8.8.8"]`. |
+| `system` | Use Node.js system DNS resolution.                                           |
+| `off`    | Do not write `addresses=` in generated Surge external proxy entries.         |
 
 Every strategy except `off` falls back to the other resolvers when it returns nothing usable, so a
 failing DoH endpoint or a fake-ip system resolver still produces a real address.
@@ -196,7 +209,7 @@ surge-vless-bridge sync --dry-run
 Surge does not watch its profile, so a synced profile only takes effect after a reload. If the HTTP API
 is enabled, the CLI triggers it automatically. Add this to `[General]` in your Surge profile:
 
-```
+```ini
 http-api = your-key@127.0.0.1:6171
 ```
 

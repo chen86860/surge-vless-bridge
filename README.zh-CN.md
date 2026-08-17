@@ -20,6 +20,21 @@ Surge Mac 不原生支持 VLESS 协议。该工具自动拉取订阅、为每个
 npm i -g surge-vless-bridge
 ```
 
+## 让 AI Agent 帮你完成配置
+
+想让 Claude Code、Cursor、Codex 之类的 agent 代劳？把 [docs/agent-setup.md](./docs/agent-setup.md)
+交给它即可：里面写清了命令顺序、配置文件的落盘位置、`doctor` 输出怎么读，以及哪些命令必须先经过你确认。
+
+```text
+阅读 https://github.com/chen86860/surge-vless-bridge/blob/master/docs/agent-setup.md
+然后帮我配置好 surge-vless-bridge
+```
+
+Agent 会向你索要订阅地址并确认 Surge 配置文件路径，其余项都有默认值；在真正写入之前，它应当先用
+`sync --dry-run` 给你看一遍改动。
+
+想自己动手配置的话，继续往下看。
+
 ## 快速开始
 
 **1. 生成配置文件：**
@@ -88,10 +103,7 @@ surge-vless-bridge doctor
 
 ```json
 {
-  "subscriptionUrls": [
-    "https://example.com/subscription-a",
-    "https://example.com/subscription-b"
-  ],
+  "subscriptionUrls": ["https://example.com/subscription-a", "https://example.com/subscription-b"],
   "vlessNodes": [
     "vless://uuid@example.com:443?type=tcp&security=reality&pbk=public-key&sid=short-id&fp=chrome&sni=example.com&flow=xtls-rprx-vision#Example"
   ],
@@ -109,11 +121,11 @@ surge-vless-bridge doctor
 
 **必填**
 
-| 字段              | 说明                     |
-| ----------------- | ------------------------ |
-| `subscriptionUrls` | 一个或多个 VLESS 订阅地址 |
-| `vlessNodes` | 一个或多个原始 `vless://` 节点地址 |
-| `surgeConfigPath` | Surge 配置文件的绝对路径 |
+| 字段               | 说明                               |
+| ------------------ | ---------------------------------- |
+| `subscriptionUrls` | 一个或多个 VLESS 订阅地址          |
+| `vlessNodes`       | 一个或多个原始 `vless://` 节点地址 |
+| `surgeConfigPath`  | Surge 配置文件的绝对路径           |
 
 `subscriptionUrl` 仍然兼容。当 `subscriptionUrl` 与 `subscriptionUrls` 同时存在时，两者会合并去重，且
 `subscriptionUrl` 排在最前 —— 新增第二个机场不会导致原订阅丢失。`subscriptionUrl`、`subscriptionUrls`、
@@ -124,25 +136,25 @@ surge-vless-bridge doctor
 
 **选填**
 
-| 字段              | 默认值                                 | 说明                               |
-| ----------------- | -------------------------------------- | ---------------------------------- |
-| `policyGroupName` | `"VLESS"`                              | 要写入的 Surge 策略组名称          |
-| `portStart`       | `2081`                                 | 起始本地端口，每个节点依次递增     |
-| `singBoxBinary`   | 自动检测（`which sing-box`）           | `sing-box` 可执行文件路径          |
-| `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | 每个节点的 sing-box 配置保存目录   |
-| `backupDir`       | `~/.config/surge-vless-bridge/backups` | Surge 配置备份目录                 |
+| 字段              | 默认值                                 | 说明                                 |
+| ----------------- | -------------------------------------- | ------------------------------------ |
+| `policyGroupName` | `"VLESS"`                              | 要写入的 Surge 策略组名称            |
+| `portStart`       | `2081`                                 | 起始本地端口，每个节点依次递增       |
+| `singBoxBinary`   | 自动检测（`which sing-box`）           | `sing-box` 可执行文件路径            |
+| `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | 每个节点的 sing-box 配置保存目录     |
+| `backupDir`       | `~/.config/surge-vless-bridge/backups` | Surge 配置备份目录                   |
 | `backupKeep`      | `20`                                   | 保留的备份数量，超出的旧备份自动清理 |
-| `autoReload`      | `true`                                 | 配置变更后自动让 Surge 重载        |
-| `addressResolver` | 见下方                                 | 为 `addresses=` 解析代理服务器域名 |
+| `autoReload`      | `true`                                 | 配置变更后自动让 Surge 重载          |
+| `addressResolver` | 见下方                                 | 为 `addresses=` 解析代理服务器域名   |
 
 `addressResolver.strategy` 可选：
 
-| 策略     | 说明                                                          |
-| -------- | ------------------------------------------------------------- |
-| `doh`    | 使用 `addressResolver.dohEndpoint` 解析，这是默认值。          |
+| 策略     | 说明                                                                    |
+| -------- | ----------------------------------------------------------------------- |
+| `doh`    | 使用 `addressResolver.dohEndpoint` 解析，这是默认值。                   |
 | `dns`    | 使用 `addressResolver.dnsServers` 解析，例如 `["1.1.1.1", "8.8.8.8"]`。 |
-| `system` | 使用 Node.js 系统 DNS 解析。                                  |
-| `off`    | 不在生成的 Surge external proxy 条目中写入 `addresses=`。      |
+| `system` | 使用 Node.js 系统 DNS 解析。                                            |
+| `off`    | 不在生成的 Surge external proxy 条目中写入 `addresses=`。               |
 
 除 `off` 外，任何策略解析不到可用地址时都会自动回退到其余解析方式，因此 DoH 端点不可用或系统解析被
 fake-ip 污染时，仍然可以拿到真实 IP。
@@ -188,7 +200,7 @@ surge-vless-bridge sync --dry-run
 Surge 不会监听配置文件变化，同步后需要重载才会生效。如果开启了 HTTP API，本工具会自动触发重载。在 Surge
 配置的 `[General]` 中加入：
 
-```
+```ini
 http-api = your-key@127.0.0.1:6171
 ```
 
