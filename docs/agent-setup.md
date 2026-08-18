@@ -17,6 +17,13 @@ profile is never touched.
 Requires macOS, Node.js >= 20, `sing-box` on disk, and a Surge profile containing `[Proxy]` and
 `[Proxy Group]` sections.
 
+One node means one resident `sing-box` process at roughly 35 MB — 20 nodes cost about 700 MB. The
+policy group is a `url-test`, so Surge latency-tests every member and none of the processes are
+lazy. Tell the user this number **before** syncing a large subscription, and say what it will cost on
+their machine: a 60-node subscription is about 2 GB. If they only need a few nodes, suggest a
+filtered subscription or listing the links under `vlessNodes` instead. See
+[Memory cost](../README.md#memory-cost-one-sing-box-process-per-node).
+
 ## Ask the user — never guess
 
 | Value | Why you cannot infer it |
@@ -40,7 +47,9 @@ npm i -g surge-vless-bridge
 
 # 3. Create the config. `init` is interactive for humans, so pass the answers as flags instead —
 #    it PRINTS the path it wrote; read it from the output rather than assuming it
-#    (see "Where the config file lands" below)
+#    (see "Where the config file lands" below).
+#    `--no-input` also means it will not sync: for a human answering the questions `init` runs the
+#    first sync itself, but under an agent the profile is only ever written by an explicit `sync`.
 surge-vless-bridge init --no-input --subscription-url "$URL" --surge-config "$PROFILE"
 
 # 4. Check the file: subscriptionUrls and surgeConfigPath must both be filled in

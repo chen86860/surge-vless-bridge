@@ -11,6 +11,7 @@ Surge Mac does not natively support the VLESS protocol. This tool bridges the ga
 
 ## Prerequisites
 
+- macOS with Node.js >= 20
 - [sing-box](https://github.com/SagerNet/sing-box) installed (`brew install sing-box`)
 - Surge Mac with a profile containing `[Proxy]` and `[Proxy Group]` sections
 
@@ -42,16 +43,24 @@ npm i -g surge-vless-bridge
 
 ### Quick Start
 
-**1. Create a config file:**
+**1. Set everything up:**
 
 ```bash
 surge-vless-bridge init
 ```
 
 `init` asks for your subscription URL, then lets you pick a Surge profile with ↑/↓, and writes
-`~/.config/surge-vless-bridge/config.json` — printing the exact path. Press Enter to skip the URL or
-Esc to skip the profile and fill either in by hand later. Pass `--no-input` to skip both and just
-write the template.
+`~/.config/surge-vless-bridge/config.json` — printing the exact path. Once both answers are in it
+runs the first sync itself, so this one command is usually the whole setup. Press Enter to skip the
+URL or Esc to skip the profile and fill either in by hand later; anything skipped means there is
+nothing to sync yet, and the steps below pick up from there.
+
+`--no-sync` stops after writing the config. `--no-input` skips both questions and just writes the
+template — it never syncs either, so creating a config file in CI or under an agent cannot rewrite
+your Surge profile as a side effect.
+
+`init` stops with an error if a config file is already there, before it asks anything. Pass `--force`
+to overwrite it.
 
 **2. Edit the config file** (only if you skipped a question):
 
@@ -82,33 +91,20 @@ Fill in at minimum:
   > ls ~/Library/Application\ Support/Surge/Profiles/
   > ```
 
-**3. Run a sync:**
+**3. Run a sync** (only if `init` did not already):
 
 ```bash
 surge-vless-bridge sync
 ```
 
-`sync` fetches the subscription, generates sing-box configs, backs up your Surge profile, and updates it.
+`sync` fetches the subscription, generates sing-box configs, backs up your Surge profile, and updates
+it. This is also the command to re-run whenever your subscription changes.
 
 **4. Verify everything is correct:**
 
 ```bash
 surge-vless-bridge doctor
 ```
-
-## How sync protects your profile
-
-- Nodes are generated and validated in a staging directory first; if anything fails, neither the Surge
-  profile nor the previous node configs are touched.
-- The Surge profile is backed up to `backupDir` before every write, and `restore` brings the latest
-  backup back.
-- Node configs produced by a sync are recorded in `manifest.json`, so `rebuild` never resurrects nodes
-  that have been removed from the subscription.
-- `sync` refuses to update the profile when no configured source yields a VLESS node, so one expired
-  subscription cannot empty your policy group.
-- Generated configs are checked with `sing-box check`, which validates the config against _your_
-  installed sing-box: it catches unknown or unsupported options and invalid keys, but it does not test
-  whether a node actually connects.
 
 ## Config File
 
@@ -134,11 +130,16 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 
 **Required**
 
+| Field             | Description                         |
+| ----------------- | ----------------------------------- |
+| `surgeConfigPath` | Absolute path to your Surge profile |
+
+**Node source — at least one**
+
 | Field              | Description                          |
 | ------------------ | ------------------------------------ |
 | `subscriptionUrls` | One or more VLESS subscription URLs  |
 | `vlessNodes`       | One or more raw `vless://` node URLs |
-| `surgeConfigPath`  | Absolute path to your Surge profile  |
 
 `subscriptionUrl` is still supported for backward compatibility. When both `subscriptionUrl` and
 `subscriptionUrls` are set, they are merged and deduplicated, with `subscriptionUrl` fetched first — so
@@ -153,13 +154,18 @@ subscription that returns no VLESS nodes is reported as a warning rather than fa
 | Field             | Default                                | Description                                            |
 | ----------------- | -------------------------------------- | ------------------------------------------------------ |
 | `policyGroupName` | `"VLESS"`                              | Surge policy group name to populate                    |
-| `portStart`       | `2081`                                 | Starting local port; each node uses the next available |
+| `portStart`       | `2081`                                 | First local port; nodes take `portStart + N` in order  |
 | `singBoxBinary`   | auto-detected via `which sing-box`     | Path to the `sing-box` binary                          |
 | `outputDir`       | `~/.config/surge-vless-bridge/nodes`   | Where per-node sing-box configs are written            |
 | `backupDir`       | `~/.config/surge-vless-bridge/backups` | Where Surge profile backups are stored                 |
 | `backupKeep`      | `20`                                   | How many backups to keep; older ones are pruned        |
 | `autoReload`      | `true`                                 | Ask Surge to reload the profile after it changes       |
 | `addressResolver` | see below                              | How to resolve proxy server domains for `addresses=`   |
+
+Ports are assigned in order, never reshuffled. Before generating anything, `sync` checks that the
+range is free and stops with an error naming the ports if another program holds one, rather than
+writing a node that could never start. The nodes from the previous sync are not a conflict: Surge
+keeps them listening on the very ports the next sync reuses.
 
 `addressResolver.strategy` can be:
 
@@ -191,6 +197,9 @@ You can also override fields at runtime:
 surge-vless-bridge sync --subscription-url https://example.com/sub --group-name VLESS
 ```
 
+Every config key has a matching flag, and `--config <path>` points at a different config file.
+`surge-vless-bridge --help` lists them all.
+
 ## Commands
 
 | Command                      | Description                                                   |
@@ -198,7 +207,7 @@ surge-vless-bridge sync --subscription-url https://example.com/sub --group-name 
 | `surge-vless-bridge init`    | Create a config, asking for the subscription and Surge profile |
 | `surge-vless-bridge sync`    | Fetch subscription → generate sing-box configs → update Surge |
 | `surge-vless-bridge rebuild` | Rebuild Surge block from existing local configs (no network)  |
-| `surge-vless-bridge restore` | Restore the latest Surge profile backup                       |
+| `surge-vless-bridge restore` | Restore the latest profile backup, or the one passed as an argument |
 | `surge-vless-bridge clean`   | Remove generated configs and the managed Surge block          |
 | `surge-vless-bridge doctor`  | Validate config, paths, ports and required Surge markers      |
 
@@ -232,7 +241,57 @@ Surge profile, leaving the rest of the profile untouched. The profile is backed 
 surge-vless-bridge clean
 ```
 
+It asks for confirmation before deleting anything. Pass `--yes` to skip the prompt — required when
+running it from a script or an agent, which would otherwise hang waiting for an answer.
+
+```bash
+surge-vless-bridge clean --yes
+```
+
 ---
+
+## How sync protects your profile
+
+- Nodes are generated and validated in a staging directory first; if anything fails, neither the Surge
+  profile nor the previous node configs are touched.
+- The Surge profile is backed up to `backupDir` before every write, and `restore` brings the latest
+  backup back.
+- Node configs produced by a sync are recorded in `manifest.json`, so `rebuild` never resurrects nodes
+  that have been removed from the subscription.
+- `sync` refuses to update the profile when no configured source yields a VLESS node, so one expired
+  subscription cannot empty your policy group.
+- Generated configs are checked with `sing-box check`, which validates the config against _your_
+  installed sing-box: it catches unknown or unsupported options and invalid keys, but it does not test
+  whether a node actually connects.
+
+## Memory cost: one sing-box process per node
+
+Surge's `external` proxy starts one process per proxy line, so every node in your subscription becomes
+its own `sing-box` process. **Budget roughly 35 MB of RSS per node.** Measured on macOS with sing-box
+1.13 and 20 nodes:
+
+| Nodes | Processes | Total RSS |
+| ----- | --------- | --------- |
+| 1     | 1         | ~35 MB    |
+| 20    | 20        | ~700 MB   |
+
+Most of those 35 MB is the fixed cost of the Go runtime rather than anything per-connection, so the
+figure barely moves whether a node is idle or busy.
+
+The processes are not started on demand. `sync` writes the policy group as `url-test`, which makes
+Surge latency-test every member periodically, so all of them are launched and stay resident even when
+you only ever route traffic through one. A 60-node subscription therefore costs about 2 GB.
+
+If that matters on your machine:
+
+- Import only the nodes you actually use. Point `subscriptionUrls` at a filtered subscription, or list
+  the handful of links you need under `vlessNodes` instead.
+- Run `clean` when you are done with a set of nodes; it removes the generated configs and the policy
+  group, which stops the processes.
+
+A single sing-box process can serve many nodes at once — several SOCKS inbounds routed to their own
+outbounds — which would collapse the whole set into ~35 MB. It is not what this tool generates today,
+because `external` is what lets Surge own the process lifecycle. Tracking it as a possible opt-in mode.
 
 ## Development
 
