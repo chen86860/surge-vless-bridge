@@ -5,6 +5,27 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.6.0] - 2026-08-18
+
+### 新增
+
+- `init` 在回答完提问后会直接执行首次同步，全新配置从两条命令变成一条。其余场景仍需显式执行：`--no-input`、
+  CI 或 agent 环境下不会自动同步 —— 创建配置文件不应顺带改写 Surge 配置。`--no-sync` 可显式跳过。同步失败
+  不算 init 失败：配置会保留，并提示需要修复什么。
+- 当所需端口被其他程序占用时，`sync` 直接报错并指出具体端口和 `portStart` 配置项。此前端口按
+  `portStart + N` 直接分配、不做检查，冲突时会生成一个静默起不来的节点，只能等到 `doctor` 才发现。端口被
+  占用只有在占用者不是自己时才算冲突：占用方通过系统查询确认，因此 Surge 正在运行的既有节点不会阻塞
+  re-sync，而占据了历史端口的陌生程序仍然会被拦下。`--dry-run` 同样会检查。
+
+### 文档
+
+- README 中补充了大订阅的内存开销：每个节点对应一个常驻 `sing-box` 进程、约 35 MB，20 个节点合计约
+  700 MB。由于策略组类型是 `url-test`，Surge 会对每个成员做延迟测速，因此这些进程不是按需启动的。
+  agent 指南中同步加入该提示，要求在同步大订阅前先告知用户。
+- 修正并补齐 README：`portStart` 是按 `portStart + N` 顺序分配而非"取下一个可用端口"；前置条件补上
+  Node.js >= 20；把 `surgeConfigPath` 从被误标为"必填"的节点来源中拆出；补充 `restore <path>`、
+  `clean --yes`、`init --force` 的说明。
+
 ## [1.5.1] - 2026-08-18
 
 ### 修复
@@ -167,6 +188,8 @@
 首批公开发布：`init` / `sync` / `rebuild` / `restore` / `doctor` 命令、VLESS 订阅解析、按节点生成
 sing-box 配置、Surge 配置备份，以及 npm 发布流程。
 
+[1.6.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.1...v1.6.0
+[1.5.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1

@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-08-18
+
+### Added
+
+- `init` runs the first sync itself once the questions are answered, so a fresh setup is one command
+  instead of two. It stays opt-in everywhere else: under `--no-input`, in CI or behind an agent,
+  creating a config file must not rewrite the Surge profile as a side effect. `--no-sync` stops after
+  writing the config. A failed sync is not a failed init — the config is kept and the error says what
+  to fix.
+- `sync` refuses to run when a port it needs is held by an unrelated program, naming the ports and
+  pointing at `portStart`. Ports were previously handed out as `portStart + N` without being checked,
+  so a collision produced a node that silently never started and only surfaced in `doctor`. A busy
+  port is only a conflict when someone else holds it: the listener is identified through the OS, so
+  the nodes Surge is already running on those ports do not block a re-sync, while a stranger on a
+  port an earlier sync had used is still caught. Dry runs are checked too.
+
+### Documentation
+
+- The README now states what a large subscription costs in memory: one resident `sing-box` process
+  per node at roughly 35 MB, about 700 MB for 20 nodes. Because the policy group is a `url-test`,
+  Surge latency-tests every member, so none of the processes are started lazily. The agent guide
+  carries the same warning, to be raised with the user before a large subscription is synced.
+- Corrected and filled in the README: `portStart` hands out `portStart + N` rather than "the next
+  available" port, Node.js >= 20 is listed as a prerequisite, `surgeConfigPath` is separated from the
+  node sources it was wrongly grouped with as "required", and `restore <path>`, `clean --yes` and
+  `init --force` are documented.
+
 ## [1.5.1] - 2026-08-18
 
 ### Fixed
@@ -190,6 +217,8 @@ All notable changes to this project are documented here. The format follows
 Initial public releases: `init` / `sync` / `rebuild` / `restore` / `doctor` commands, VLESS
 subscription parsing, per-node sing-box config generation, Surge profile backup, and npm publishing.
 
+[1.6.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.1...v1.6.0
+[1.5.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1
