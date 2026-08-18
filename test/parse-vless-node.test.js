@@ -13,6 +13,13 @@ test('parses a plain VLESS node', () => {
   assert.equal(outbound.uuid, 'uuid-1');
 });
 
+test('strips the brackets URL parsing puts around an IPv6 host', () => {
+  const outbound = parseVlessNode('vless://uuid-1@[2001:db8::1]:8443?encryption=none#IPv6', 0);
+
+  assert.equal(outbound.server, '2001:db8::1');
+  assert.equal(outbound.server_port, 8443);
+});
+
 test('falls back to a generated tag when the link has no fragment', () => {
   assert.equal(parseVlessNode('vless://uuid-1@a.example:443', 4).tag, 'vless-5');
 });

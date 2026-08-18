@@ -4,7 +4,9 @@ import { toBoolean } from './base';
 export const parseVlessNode = (node: string, index: number): SingBoxVlessOutbound => {
   const url = new URL(node);
   const uuid = decodeURIComponent(url.username);
-  const host = url.hostname;
+  // `URL` returns IPv6 hosts bracketed (`[2001:db8::1]`), but every consumer wants the bare address:
+  // sing-box reads `server` as an IP or a domain, and a bracketed value parses as neither.
+  const host = url.hostname.replace(/^\[(.+)\]$/, '$1');
   const port = Number(url.port || '443');
 
   if (!uuid || !host || Number.isNaN(port)) {

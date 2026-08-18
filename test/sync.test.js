@@ -163,21 +163,22 @@ test('leaves no staging directory behind', async () => {
   );
 });
 
-test('resolves bracketed IPv6 server addresses and includes addresses= in proxy line', async () => {
+test('writes an IPv6 node without the brackets URL parsing adds', async () => {
   const { config } = await makeConfig('ipv6');
   config.subscriptionUrls = [
-    subscriptionUrl([
-      'vless://00000000-0000-4000-8000-000000000001@[2001:db8::1]:443?encryption=none#IPv6Node',
-    ]),
+    subscriptionUrl(['vless://00000000-0000-4000-8000-000000000001@[2001:db8::1]:443?encryption=none#IPv6Node']),
   ];
-  config.addressResolver.strategy = 'system';
+  // A literal address short-circuits before any resolver runs, so this never touches the network.
+  config.addressResolver.strategy = 'doh';
 
   const result = await syncSubscriptionToSurge(config);
   assert.equal(result.count, 1);
 
-  const profile = await readProfile(config);
-  assert.match(
-    profile,
-    /^IPv6Node = external, .*addresses=2001:db8::1$/m,
-  );
+  // sing-box reads `server` as an IP or a domain; `[2001:db8::1]` is neither, so it would be
+  // treated as a hostname and never resolve.
+  const [file] = await nodeConfigFiles(config);
+  const json = JSON.parse(await readFile(path.join(config.outputDir, file), 'utf8'));
+  assert.equal(json.outbounds[0].server, '2001:db8::1');
+
+  assert.match(await readProfile(config), /^IPv6Node = external, .*addresses=2001:db8::1$/m);
 });
