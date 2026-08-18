@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-08-18
+
+### Fixed
+
+- Nodes on a literal IPv6 address now work. URL parsing returns such a host bracketed
+  (`[2001:db8::1]`), and that value reached both the generated sing-box config and the resolver.
+  sing-box reads `server` as an IP or a domain, and a bracketed value parses as neither, so it was
+  treated as a hostname that never resolved — the node started but no request ever got through.
+  `sing-box check` accepts the field as a plain string, so nothing flagged it. The brackets are now
+  stripped where the link is parsed, which also fixes the malformed `addresses=` written into the
+  Surge external proxy line.
+
+### Upgrading
+
+- Node configs generated before this release still hold the bracketed `server`, and `rebuild` reuses
+  them as they are. If you use IPv6 nodes, run a full `sync` once to regenerate them.
+
 ## [1.5.0] - 2026-08-17
 
 ### Added
