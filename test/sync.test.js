@@ -162,3 +162,22 @@ test('leaves no staging directory behind', async () => {
     [],
   );
 });
+
+test('resolves bracketed IPv6 server addresses and includes addresses= in proxy line', async () => {
+  const { config } = await makeConfig('ipv6');
+  config.subscriptionUrls = [
+    subscriptionUrl([
+      'vless://00000000-0000-4000-8000-000000000001@[2001:db8::1]:443?encryption=none#IPv6Node',
+    ]),
+  ];
+  config.addressResolver.strategy = 'system';
+
+  const result = await syncSubscriptionToSurge(config);
+  assert.equal(result.count, 1);
+
+  const profile = await readProfile(config);
+  assert.match(
+    profile,
+    /^IPv6Node = external, .*addresses=2001:db8::1$/m,
+  );
+});

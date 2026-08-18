@@ -78,33 +78,40 @@ const isSurgeFakeIp = (address: string) => {
   return first === 198 && (second === 18 || second === 19);
 };
 
+const unbracket = (value: string) => value.replace(/^\[(.*)\]$/, '$1');
+
 // Surge accepts a single value in `addresses=`, and A/AAAA records arrive in an unstable order.
 // IPv4 comes first so the written address is deterministic and usable on IPv4-only networks.
 const uniqueRealAddresses = (addresses: string[], resolverConfig: AddressResolverConfig) =>
   [
     ...new Set(
-      addresses.filter((address) => isIP(address) && (!resolverConfig.filterSurgeFakeIp || !isSurgeFakeIp(address))),
+      addresses
+        .map(unbracket)
+        .filter((address) => isIP(address) && (!resolverConfig.filterSurgeFakeIp || !isSurgeFakeIp(address))),
     ),
   ].sort((left, right) => Number(isIP(right) === 4) - Number(isIP(left) === 4));
 
 const resolveWithSystem = async (server: string) => {
-  const records = await lookup(server, { all: true });
+  const cleanServer = unbracket(server);
+  const records = await lookup(cleanServer, { all: true });
   return records.map((record) => record.address);
 };
 
 const resolveWithDnsServers = async (server: string, dnsServers: string[]) => {
+  const cleanServer = unbracket(server);
   const resolver = new Resolver();
   if (dnsServers.length > 0) {
     resolver.setServers(dnsServers);
   }
 
-  const settled = await Promise.allSettled([resolver.resolve4(server), resolver.resolve6(server)]);
+  const settled = await Promise.allSettled([resolver.resolve4(cleanServer), resolver.resolve6(cleanServer)]);
   return settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
 };
 
 const queryDohAddresses = async (server: string, recordType: keyof typeof DOH_RECORD_TYPES, dohEndpoint: string) => {
+  const cleanServer = unbracket(server);
   const url = new URL(dohEndpoint);
-  url.searchParams.set('name', server);
+  url.searchParams.set('name', cleanServer);
   url.searchParams.set('type', recordType);
 
   const response = await fetch(url, {
@@ -135,9 +142,10 @@ const queryDohAddresses = async (server: string, recordType: keyof typeof DOH_RE
 };
 
 const resolveWithDoh = async (server: string, dohEndpoint: string) => {
+  const cleanServer = unbracket(server);
   const settled = await Promise.allSettled([
-    queryDohAddresses(server, 'A', dohEndpoint),
-    queryDohAddresses(server, 'AAAA', dohEndpoint),
+    queryDohAddresses(cleanServer, 'A', dohEndpoint),
+    queryDohAddresses(cleanServer, 'AAAA', dohEndpoint),
   ]);
   return settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
 };
@@ -191,21 +199,22 @@ const resolveAddresses = async (server: string, resolverConfig: AddressResolverC
     return [];
   }
 
-  if (isIP(server)) {
-    return uniqueRealAddresses([server], resolverConfig);
+  const cleanServer = unbracket(server);
+  if (isIP(cleanServer)) {
+    return uniqueRealAddresses([cleanServer], resolverConfig);
   }
 
   const doh: ResolverAttempt = {
     label: 'doh',
-    run: () => resolveWithDoh(server, resolverConfig.dohEndpoint),
+    run: () => resolveWithDoh(cleanServer, resolverConfig.dohEndpoint),
   };
   const dns: ResolverAttempt = {
     label: 'dns',
-    run: () => resolveWithDnsServers(server, resolverConfig.dnsServers),
+    run: () => resolveWithDnsServers(cleanServer, resolverConfig.dnsServers),
   };
   const system: ResolverAttempt = {
     label: 'system',
-    run: () => resolveWithSystem(server),
+    run: () => resolveWithSystem(cleanServer),
   };
 
   // Surge's enhanced mode answers system DNS with fake IPs (198.18.0.0/15), which would pin an
