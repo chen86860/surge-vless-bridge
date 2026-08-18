@@ -110,6 +110,54 @@ test('init records a subscription passed by flag and keeps its token out of the 
   assert.doesNotMatch(stdout, /SECRET/);
 });
 
+// Rewriting the Surge profile must never be a side effect of creating a config file in CI or under
+// an agent, so the sync only follows the interactive questions.
+test('init does not sync when it could not ask, even with a subscription to sync', async () => {
+  const configPath = await tempConfigPath('no-auto-sync');
+  const { code, stdout, stderr } = await runCli([
+    'init',
+    '--config',
+    configPath,
+    '--no-input',
+    '--subscription-url',
+    'https://provider.example.invalid/sub',
+  ]);
+
+  assert.equal(code, 0);
+  assert.match(stdout, /Next: surge-vless-bridge sync/);
+  // A sync would have tried to fetch the unreachable subscription and said so.
+  assert.doesNotMatch(stdout + stderr, /Synced|Sync failed/);
+});
+
+// `init` syncs with the flags it was given, so a file that recorded the defaults instead would send
+// the next sync to different ports and a different policy group.
+test('init writes the config flags it was given instead of the defaults', async () => {
+  const configPath = await tempConfigPath('flag-persist');
+  const { code } = await runCli([
+    'init',
+    '--config',
+    configPath,
+    '--no-input',
+    '--port-start',
+    '26081',
+    '--group-name',
+    'NODES',
+  ]);
+
+  assert.equal(code, 0);
+  const written = JSON.parse(await readFile(configPath, 'utf8'));
+  assert.equal(written.portStart, 26081);
+  assert.equal(written.policyGroupName, 'NODES');
+});
+
+test('init syncs only after the questions were answered, and --no-sync opts out', () => {
+  const { shouldSyncAfterInit } = require('../dist/cli.js');
+
+  assert.equal(shouldSyncAfterInit({ answered: true, noSync: false }), true);
+  assert.equal(shouldSyncAfterInit({ answered: true, noSync: true }), false);
+  assert.equal(shouldSyncAfterInit({ answered: false, noSync: false }), false);
+});
+
 test('init refuses to overwrite an existing config', async () => {
   const configPath = await tempConfigPath('exists');
   await runCli(['init', '--config', configPath, '--no-input']);

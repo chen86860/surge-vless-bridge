@@ -209,6 +209,7 @@ export const writeExampleConfig = async ({
   configPath,
   force,
   values,
+  overrides,
 }: {
   cwd: string;
   configPath?: string;
@@ -216,6 +217,10 @@ export const writeExampleConfig = async ({
   // Answers collected by `init` when it can prompt. Anything absent falls back to the template
   // placeholder, so a skipped question still leaves an editable file behind.
   values?: { subscriptionUrls?: string[]; vlessNodes?: string[]; surgeConfigPath?: string };
+  // Config flags passed to `init`. They have to be written down rather than only applied to the run:
+  // `init` syncs with them, so a file that recorded the defaults instead would send the next sync to
+  // different ports and a different policy group.
+  overrides?: CliConfigInput;
 }) => {
   const defaults = await getDefaultConfig(cwd);
   const singBoxBinary = await detectSingBoxBinary();
@@ -239,6 +244,13 @@ export const writeExampleConfig = async ({
     portStart: defaults.portStart,
     addressResolver: { ...defaults.addressResolver },
   };
+
+  for (const [key, value] of Object.entries(overrides ?? {})) {
+    // `subscriptionUrl` is the legacy spelling and `subscriptionUrls` above already carries it.
+    if (value !== undefined && key !== 'subscriptionUrl' && key !== 'subscriptionUrls') {
+      (example as Record<string, unknown>)[key] = value;
+    }
+  }
 
   await writeTextFile(resolvedConfigPath, `${JSON.stringify(example, null, 2)}\n`);
   return {

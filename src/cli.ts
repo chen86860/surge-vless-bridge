@@ -40,6 +40,7 @@ const FLAGS: Record<string, FlagType> = {
   'dry-run': 'boolean',
   'no-reload': 'boolean',
   'no-input': 'boolean',
+  'no-sync': 'boolean',
   force: 'boolean',
   yes: 'boolean',
   help: 'boolean',
@@ -47,6 +48,12 @@ const FLAGS: Record<string, FlagType> = {
 };
 
 const COMMANDS = ['init', 'sync', 'rebuild', 'restore', 'doctor', 'clean', 'version', 'help'] as const;
+
+// Someone who just answered the questions meant to end up with working nodes, and the first sync is
+// what puts them in Surge. Everywhere else it stays opt-in: under --no-input, in CI or behind an
+// agent, creating a config file must not rewrite the Surge profile as a side effect.
+export const shouldSyncAfterInit = ({ answered, noSync }: { answered: boolean; noSync: boolean }) =>
+  answered && !noSync;
 
 // Read on demand: most commands never report the version, and only `help` needs it inline.
 let cachedVersion: string | undefined;
@@ -94,6 +101,7 @@ Command flags:
   --dry-run                  sync: preview the changes, write nothing
   --no-reload                sync/rebuild/restore: skip the Surge reload
   --no-input                 init: write the template without asking anything
+  --no-sync                  init: stop after writing the config, do not sync
   --force                    init: overwrite an existing config
   --yes                      clean: skip the confirmation prompt
   -v, --version              Print the version
@@ -400,7 +408,13 @@ const main = async () => {
 
     const canPrompt = parsed.options['no-input'] !== true && isInteractive();
     const answers = canPrompt ? await promptInitAnswers(preset) : preset;
-    const created = await writeExampleConfig({ cwd, configPath, force, values: answers });
+    const created = await writeExampleConfig({
+      cwd,
+      configPath,
+      force,
+      values: answers,
+      overrides: toOverrides(parsed.options),
+    });
 
     if (canPrompt) {
       console.log('');
@@ -419,11 +433,30 @@ const main = async () => {
       console.log(`  Surge profile ${answers.surgeConfigPath}`);
     }
 
-    console.log(
-      source
-        ? 'Next: surge-vless-bridge sync'
-        : 'Fill subscriptionUrls in that file, then run `surge-vless-bridge sync`.',
-    );
+    if (!source) {
+      console.log('Fill subscriptionUrls in that file, then run `surge-vless-bridge sync`.');
+      return;
+    }
+
+    if (!shouldSyncAfterInit({ answered: canPrompt, noSync: parsed.options['no-sync'] === true })) {
+      console.log('Next: surge-vless-bridge sync');
+      return;
+    }
+
+    console.log('');
+    const initialSync = await loadCliConfig({ cwd, configPath, overrides: toOverrides(parsed.options) });
+    try {
+      const result = await syncSubscriptionToSurge(initialSync.config);
+      console.log(`Synced ${result.count} nodes.`);
+      console.log(`Backup saved to ${result.backupPath}`);
+    } catch (error) {
+      // The config file is already written, so this is not a failed init: say what broke and leave
+      // the user one command away from finishing.
+      console.error(`Sync failed: ${error instanceof Error ? error.message : error}`);
+      console.error('The config was created. Fix the problem above, then run `surge-vless-bridge sync`.');
+      process.exitCode = 1;
+    }
+
     return;
   }
 
