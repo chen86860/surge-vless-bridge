@@ -5,7 +5,15 @@ const test = require('node:test');
 
 const { cleanManagedArtifacts, runDoctor, syncSubscriptionToSurge } = require('../dist/surge.js');
 const { parseHttpApiSettings } = require('../dist/utils/surge-reload.js');
-const { captureConsole, makeConfig, nodeConfigFiles, readProfile, subscriptionUrl, vlessLink } = require('./helpers.js');
+const {
+  captureConsole,
+  makeConfig,
+  nodeConfigFiles,
+  readProfile,
+  subscriptionUrl,
+  TEST_PORT_START,
+  vlessLink,
+} = require('./helpers.js');
 
 test('keeps only the configured number of backups', async () => {
   const { config } = await makeConfig('backup-keep');
@@ -32,7 +40,7 @@ test('dry run reports the plan without writing anything', async () => {
   });
 
   assert.match(output, /Would write 2 nodes/);
-  assert.match(output, /2081\s+A/);
+  assert.match(output, new RegExp(`${TEST_PORT_START}\\s+A`));
   assert.match(output, /Surge profile would change/);
   assert.equal(await readProfile(config), before);
   assert.deepEqual(await nodeConfigFiles(config), []);
@@ -102,7 +110,7 @@ test('doctor reports the ports in use once nodes exist', async () => {
 
   const output = await captureConsole('log', () => runDoctor(config));
 
-  assert.match(output, /OK ports: 2081/);
+  assert.match(output, new RegExp(`OK ports: ${TEST_PORT_START}`));
 });
 
 test('parses the Surge HTTP API settings', () => {

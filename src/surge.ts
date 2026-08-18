@@ -677,6 +677,9 @@ export const syncSubscriptionToSurge = async (config: CliConfig, { dryRun = fals
 
   const outbounds = vlessNodes.map((node, index) => parseVlessNode(node, index));
 
+  // Checked on dry runs too: a preview that hides the conflict would report a sync that cannot work.
+  await ensurePortsAreFree(config, outbounds.length);
+
   // Everything is generated and validated in a staging directory first, so a failure part-way through
   // leaves both the Surge profile and the previous node configs untouched.
   const stagingDir = join(config.outputDir, `.staging-${randomUUID()}`);
@@ -831,24 +834,80 @@ type DoctorCheck = {
 
 // Ports are probed by binding them: Surge starts one sing-box per node on portStart+N, and a port
 // already taken by something else makes that node fail with no obvious cause.
-const findPortConflicts = async (portStart: number, count: number) => {
-  const conflicts: number[] = [];
+const findPortsInUse = async (ports: number[]) => {
+  const inUse: number[] = [];
 
-  for (let offset = 0; offset < count; offset += 1) {
-    const port = portStart + offset;
-    const inUse = await new Promise<boolean>((resolvePromise) => {
+  for (const port of ports) {
+    const taken = await new Promise<boolean>((resolvePromise) => {
       const server = createServer();
       server.once('error', (error: NodeJS.ErrnoException) => resolvePromise(error.code === 'EADDRINUSE'));
       server.once('listening', () => server.close(() => resolvePromise(false)));
       server.listen(port, '127.0.0.1');
     });
 
-    if (inUse) {
+    if (taken) {
+      inUse.push(port);
+    }
+  }
+
+  return inUse;
+};
+
+const portRange = (portStart: number, count: number) =>
+  Array.from({ length: count }, (_unused, offset) => portStart + offset);
+
+// Surge keeps the previous sync's nodes listening on exactly the ports the next sync reuses, so a
+// busy port is only a conflict when someone else holds it. Asking the OS who the listener is beats
+// inferring it from the generated filenames: once a port has appeared in a config, that inference
+// would excuse a stranger sitting on it forever.
+const describesOwnSingBox = (commandLine: string, outputDir: string) =>
+  commandLine.includes('sing-box') && commandLine.includes(resolve(outputDir));
+
+const isPortHeldByOwnNode = async (port: number, outputDir: string) => {
+  try {
+    const { stdout: pids } = await execFileAsync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
+      timeout: 5_000,
+    });
+    const pidList = pids.trim().split('\n').filter(Boolean);
+    if (pidList.length === 0) {
+      return false;
+    }
+
+    const { stdout: commands } = await execFileAsync('ps', ['-o', 'command=', '-p', pidList.join(',')], {
+      timeout: 5_000,
+    });
+    return commands
+      .trim()
+      .split('\n')
+      .every((line) => describesOwnSingBox(line, outputDir));
+  } catch {
+    // No lsof, no permission, nothing listening any more: treat the port as somebody else's rather
+    // than inventing an owner, so the sync stops instead of writing a node that cannot start.
+    return false;
+  }
+};
+
+// Ports are handed out as portStart+N with no probing, so a port held by an unrelated program would
+// produce a node that never starts and only surfaces later in `doctor`. Failing here turns that
+// silent breakage into an error naming the ports and the fix.
+const ensurePortsAreFree = async (config: CliConfig, count: number) => {
+  const taken = await findPortsInUse(portRange(config.portStart, count));
+  const conflicts: number[] = [];
+  for (const port of taken) {
+    if (!(await isPortHeldByOwnNode(port, config.outputDir))) {
       conflicts.push(port);
     }
   }
 
-  return conflicts;
+  if (conflicts.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `Ports already in use by another program: ${conflicts.join(', ')}. ` +
+      `${count} node${count === 1 ? '' : 's'} need ${config.portStart}-${config.portStart + count - 1}. ` +
+      'Set a different "portStart" in the config, or pass --port-start.',
+  );
 };
 
 export const runDoctor = async (config: CliConfig) => {
@@ -915,7 +974,7 @@ export const runDoctor = async (config: CliConfig) => {
     ? await readManagedConfigEntries(config.outputDir).catch(() => [])
     : [];
   if (managedEntries.length > 0) {
-    const conflicts = await findPortConflicts(config.portStart, managedEntries.length);
+    const conflicts = await findPortsInUse(portRange(config.portStart, managedEntries.length));
     // Surge keeps the managed nodes listening, so their own ports read as busy while it is running.
     checks.push({
       label: 'ports',

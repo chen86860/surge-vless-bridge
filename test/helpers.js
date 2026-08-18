@@ -8,6 +8,15 @@ const { getDefaultConfig } = require('../dist/configuration.js');
 // every config. Tests that need a rejecting binary write their own script.
 const STUB_SING_BOX = '/usr/bin/true';
 
+// Well clear of the 2081 default: `sync` refuses to run when its ports are taken, and a developer
+// using the tool has real sing-box instances sitting on that range.
+//
+// Each test file gets its own block. `node --test` runs the files in parallel processes, and the
+// port check probes by binding, so a shared range would let one file's probe read as another file's
+// conflict. Tests within a file run in sequence and can share the block.
+const TEST_PORT_BLOCK = 30;
+const TEST_PORT_START = 20000 + (process.pid % 300) * TEST_PORT_BLOCK;
+
 const PROFILE_TEXT = [
   '[Proxy]',
   'DIRECT = direct',
@@ -48,6 +57,7 @@ const makeConfig = async (label) => {
       // reaches a Surge instance running on the developer's machine.
       addressResolver: { ...defaults.addressResolver, strategy: 'off' },
       autoReload: false,
+      portStart: TEST_PORT_START,
     },
   };
 };
@@ -76,6 +86,7 @@ const captureConsole = async (method, run) => {
 module.exports = {
   PROFILE_TEXT,
   STUB_SING_BOX,
+  TEST_PORT_START,
   captureConsole,
   makeConfig,
   nodeConfigFiles,

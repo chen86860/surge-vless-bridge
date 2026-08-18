@@ -1,5 +1,7 @@
 const assert = require('node:assert/strict');
 const { chmod, readFile, writeFile } = require('node:fs/promises');
+const { spawn } = require('node:child_process');
+const { createServer } = require('node:net');
 const path = require('node:path');
 const test = require('node:test');
 
@@ -11,6 +13,7 @@ const {
   policyGroupLine,
   readProfile,
   subscriptionUrl,
+  TEST_PORT_START,
   vlessLink,
 } = require('./helpers.js');
 
@@ -140,10 +143,10 @@ test('removes stale node configs and rebuilds only what the manifest lists', asy
   config.subscriptionUrls = [subscriptionUrl([vlessLink(1, 'A')])];
   await syncSubscriptionToSurge(config);
 
-  assert.deepEqual(await nodeConfigFiles(config), ['sing-box[2081].json']);
+  assert.deepEqual(await nodeConfigFiles(config), [`sing-box[${TEST_PORT_START}].json`]);
   assert.deepEqual(JSON.parse(await readFile(path.join(config.outputDir, 'manifest.json'), 'utf8')), {
     version: 1,
-    files: ['sing-box[2081].json'],
+    files: [`sing-box[${TEST_PORT_START}].json`],
   });
 
   const rebuilt = await rebuildSurgeFromLocalConfigs(config);
@@ -160,6 +163,105 @@ test('leaves no staging directory behind', async () => {
   assert.deepEqual(
     (await readdir(config.outputDir)).filter((entry) => entry.startsWith('.staging-')),
     [],
+  );
+});
+
+// Binds a port on 127.0.0.1 and releases it when the test ends, standing in for an unrelated
+// program sitting on a port the sync wants.
+const occupyPort = async (t, port) => {
+  const server = createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+};
+
+test('refuses to sync when another program holds a port it needs', async (t) => {
+  const { config } = await makeConfig('port-taken');
+  config.portStart = TEST_PORT_START + 10;
+  config.subscriptionUrls = [subscriptionUrl([vlessLink(1, 'A'), vlessLink(2, 'B')])];
+  await occupyPort(t, config.portStart + 1);
+
+  await assert.rejects(syncSubscriptionToSurge(config), (error) => {
+    assert.match(error.message, new RegExp(`Ports already in use by another program: ${TEST_PORT_START + 11}`));
+    assert.match(error.message, /--port-start/);
+    return true;
+  });
+
+  // The failure lands before anything is generated, so no node config is left behind.
+  assert.deepEqual(await nodeConfigFiles(config), []);
+});
+
+test('reports the port conflict on a dry run instead of previewing a sync that cannot work', async (t) => {
+  const { config } = await makeConfig('port-taken-dry');
+  config.portStart = TEST_PORT_START + 14;
+  config.subscriptionUrls = [subscriptionUrl([vlessLink(1, 'A')])];
+  await occupyPort(t, config.portStart);
+
+  await assert.rejects(syncSubscriptionToSurge(config, { dryRun: true }), /Ports already in use/);
+});
+
+// Stands in for a sing-box that Surge started: a real process holding the port, whose command line
+// names both sing-box and a config inside outputDir. Binding the port from this test process would
+// not do — the check asks the OS who the listener is.
+const runFakeSingBoxOn = async (t, config, port) => {
+  const script = path.join(path.dirname(config.outputDir), 'sing-box');
+  // The port is the last argument; the ones before it only exist to make the command line look like
+  // a sing-box started by Surge.
+  await writeFile(script, 'require("node:net").createServer().listen(Number(process.argv.at(-1)), "127.0.0.1");\n', 'utf8');
+  const child = spawn(process.execPath, [script, '-c', path.join(config.outputDir, `sing-box[${port}].json`), port], {
+    stdio: 'ignore',
+  });
+  t.after(() => child.kill());
+
+  // Wait for the port to actually be listening before the sync probes it.
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const free = await new Promise((resolve) => {
+      const probe = createServer();
+      probe.once('error', () => resolve(false));
+      probe.once('listening', () => probe.close(() => resolve(true)));
+      probe.listen(port, '127.0.0.1');
+    });
+    if (!free) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
+  throw new Error(`fake sing-box never bound port ${port}`);
+};
+
+// Surge keeps the previous sync's nodes listening on exactly the ports the next sync reuses, so a
+// naive "is this port free" check would make every re-sync fail.
+test('re-syncs while its own nodes still hold their ports', async (t) => {
+  const { config } = await makeConfig('port-owned');
+  config.portStart = TEST_PORT_START + 18;
+  config.subscriptionUrls = [subscriptionUrl([vlessLink(1, 'A'), vlessLink(2, 'B')])];
+  await syncSubscriptionToSurge(config);
+
+  await runFakeSingBoxOn(t, config, config.portStart);
+  await runFakeSingBoxOn(t, config, config.portStart + 1);
+
+  const result = await syncSubscriptionToSurge(config);
+  assert.equal(result.count, 2);
+});
+
+// The port has been used by a node before, so a check that trusted the generated filenames would
+// wave this through and write a node that can never start.
+test('still fails when a stranger takes a port a previous sync had used', async (t) => {
+  const { config } = await makeConfig('port-stolen');
+  config.portStart = TEST_PORT_START + 22;
+  config.subscriptionUrls = [subscriptionUrl([vlessLink(1, 'A'), vlessLink(2, 'B')])];
+  await syncSubscriptionToSurge(config);
+  assert.deepEqual(await nodeConfigFiles(config), [
+    `sing-box[${config.portStart}].json`,
+    `sing-box[${config.portStart + 1}].json`,
+  ]);
+
+  await occupyPort(t, config.portStart + 1);
+
+  await assert.rejects(
+    syncSubscriptionToSurge(config),
+    new RegExp(`Ports already in use by another program: ${TEST_PORT_START + 23}`),
   );
 });
 
