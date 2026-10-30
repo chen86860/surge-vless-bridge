@@ -65,3 +65,23 @@ test('omits TLS fields that do not exist in older sing-box builds', () => {
   assert.ok(!('record_fragment' in outbound.tls));
   assert.equal(JSON.stringify(outbound).includes('record_fragment'), false);
 });
+
+// sing-box refuses to start a reality client without uTLS, so a link that omits `fp` would otherwise
+// break the shared config for every node.
+test('gives a reality node without fp the Chrome uTLS fingerprint', () => {
+  const outbound = parseVlessNode('vless://uuid-1@a.example:443?security=reality&pbk=PUBLIC-KEY&sid=abcd#R', 0);
+
+  assert.deepEqual(outbound.tls.utls, { enabled: true, fingerprint: 'chrome' });
+});
+
+test('keeps the fingerprint a reality link names', () => {
+  const outbound = parseVlessNode('vless://uuid-1@a.example:443?security=reality&pbk=PUBLIC-KEY&fp=firefox#R', 0);
+
+  assert.deepEqual(outbound.tls.utls, { enabled: true, fingerprint: 'firefox' });
+});
+
+test('leaves uTLS off for a plain TLS node without fp', () => {
+  const outbound = parseVlessNode('vless://uuid-1@a.example:443?security=tls&sni=a.example#T', 0);
+
+  assert.equal(outbound.tls.utls, undefined);
+});

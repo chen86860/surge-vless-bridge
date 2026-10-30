@@ -479,7 +479,7 @@ const main = async () => {
       break;
     }
     case 'doctor': {
-      const { failures } = await runDoctor(loaded.config);
+      const { failures } = await runDoctor(loaded.config, { configPath: loaded.configPath });
       if (failures > 0) {
         process.exitCode = 1;
       }

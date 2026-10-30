@@ -10,7 +10,16 @@ import { promisify } from 'node:util';
 import { getVlessSubscriptionNodes } from './parse';
 import type { AddressResolverConfig, CliConfig } from './types/cli-config';
 import type { SingBoxVlessOutbound } from './types/sing-box-vless-outbound';
-import { pathExists, readJsonFile, readTextFile, writeBinaryFile, writeTextFile } from './utils/fs';
+import {
+  isReadableByOthers,
+  pathExists,
+  readJsonFile,
+  readTextFile,
+  replaceBinaryFile,
+  replaceTextFile,
+  writeBinaryFile,
+  writeTextFile,
+} from './utils/fs';
 import {
   LAUNCHER_FILE_NAME,
   LAUNCHER_SCRIPT,
@@ -283,8 +292,8 @@ const ensureRuntimePaths = async (config: CliConfig) => {
 };
 
 const ensureWritableDirs = async (config: CliConfig) => {
-  await mkdir(config.outputDir, { recursive: true });
-  await mkdir(config.backupDir, { recursive: true });
+  await mkdir(config.outputDir, { recursive: true, mode: 0o700 });
+  await mkdir(config.backupDir, { recursive: true, mode: 0o700 });
 };
 
 // `sing-box check` validates structure only: it rejects malformed JSON, unknown outbound types and
@@ -362,7 +371,7 @@ const pruneBackups = async (backupDir: string, keep: number) => {
 };
 
 export const backupSurgeProfile = async (config: CliConfig) => {
-  await mkdir(config.backupDir, { recursive: true });
+  await mkdir(config.backupDir, { recursive: true, mode: 0o700 });
 
   const bytes = await readJsonCompatibleBinary(config.surgeConfigPath);
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -492,7 +501,7 @@ const buildSurgeProfile = async ({
 
 const writeSurgeProfile = async (params: { config: CliConfig; proxyLines: string[]; nodeNames: string[] }) => {
   const { updated } = await buildSurgeProfile(params);
-  await writeTextFile(params.config.surgeConfigPath, updated);
+  await replaceTextFile(params.config.surgeConfigPath, updated);
   return updated;
 };
 
@@ -599,7 +608,7 @@ export const cleanManagedArtifacts = async (config: CliConfig) => {
     '',
   );
 
-  await writeTextFile(config.surgeConfigPath, withoutGroup);
+  await replaceTextFile(config.surgeConfigPath, withoutGroup);
 
   const nodeCount = (await readSharedConfigNodesIfPresent(config.outputDir)).length;
   await stopSharedSingBox(config.outputDir);
@@ -746,7 +755,7 @@ export const restoreSurgeProfileBackup = async ({ config, backupPath }: { config
     throw new Error(`No backup files found in ${config.backupDir}`);
   }
 
-  await writeBinaryFile(config.surgeConfigPath, await readJsonCompatibleBinary(targetPath));
+  await replaceBinaryFile(config.surgeConfigPath, await readJsonCompatibleBinary(targetPath));
   await maybeReloadSurge(config, await readTextFile(config.surgeConfigPath));
   return targetPath;
 };
@@ -798,10 +807,22 @@ const findPortConflicts = async (portStart: number, count: number) => {
   return conflicts;
 };
 
-export const runDoctor = async (config: CliConfig) => {
+export const runDoctor = async (config: CliConfig, { configPath }: { configPath?: string } = {}) => {
   const subscriptionUrls = getSubscriptionUrls(config);
   const vlessNodes = getConfiguredVlessNodes(config);
   const checks: DoctorCheck[] = [];
+
+  // Configs written by older releases, or by hand, are usually world-readable, and they hold the
+  // subscription URL in plain text.
+  if (configPath && (await pathExists(configPath))) {
+    const exposed = await isReadableByOthers(configPath);
+    checks.push({
+      label: 'configFile',
+      level: exposed ? 'warn' : 'ok',
+      detail: exposed ? `${configPath} is readable by other users; run \`chmod 600\` on it` : configPath,
+    });
+  }
+
 
   checks.push({
     label: 'nodeSources',

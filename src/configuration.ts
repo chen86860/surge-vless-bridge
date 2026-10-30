@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
@@ -126,9 +127,12 @@ const resolveGitRoot = (cwd: string): string | undefined => {
 export const resolveConfigPath = (cwd: string, configPath?: string) =>
   configPath ? resolve(cwd, configPath) : resolveDefaultConfigPath(cwd);
 
+// A repo-local config is used only when the repo actually has one. Picking the git root whenever the
+// cwd sits inside any repo made every command run from an unrelated project fail with "Config file not
+// found", and made `init` there write the subscription URL into a file that repo could commit.
 const resolveDefaultConfigPath = (cwd: string) => {
   const gitRoot = resolveGitRoot(cwd);
-  if (gitRoot) {
+  if (gitRoot && existsSync(join(gitRoot, CONFIG_FILE_NAME))) {
     return join(gitRoot, CONFIG_FILE_NAME);
   }
 

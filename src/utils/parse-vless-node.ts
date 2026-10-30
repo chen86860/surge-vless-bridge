@@ -68,10 +68,13 @@ export const parseVlessNode = (node: string, index: number): SingBoxVlessOutboun
       outbound.tls.insecure = true;
     }
 
-    if (fp) {
+    // sing-box refuses to start a reality client without uTLS ("uTLS is required by reality client"),
+    // and some providers omit `fp` from reality links. With every node in one sing-box, one such link
+    // would fail the whole sync, so reality falls back to Chrome, the de facto fingerprint for these.
+    if (fp || security === 'reality') {
       outbound.tls.utls = {
         enabled: true,
-        fingerprint: fp,
+        fingerprint: fp || 'chrome',
       };
     }
 
