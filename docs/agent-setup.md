@@ -5,14 +5,19 @@ proxies in **Surge Mac**. It covers how to drive the `surge-vless-bridge` CLI en
 breaking their Surge profile.
 
 > Editing the source code of this repo instead of using the tool? See
-> [AGENTS.md](../AGENTS.md) and [Development](../README.md#development).
+> [AGENTS.md](../AGENTS.md) and [Development](../README.en.md#development).
 
 ## What the tool does
 
 Surge Mac has no native VLESS support. This CLI fetches a VLESS subscription, writes one local
-`sing-box` config per node, and injects matching `external` proxies plus a policy group into the
-user's Surge profile — inside a marked block (`# vless start` … `# vless end`) so the rest of the
-profile is never touched.
+`sing-box.json` holding every node (one SOCKS port per node), and injects matching `external` proxies
+plus a policy group into the user's Surge profile — inside a marked block (`# vless start` …
+`# vless end`) so the rest of the profile is never touched.
+
+Each Surge node runs `nodes/launcher.sh`, and all launchers share one sing-box process: the first
+starts it, the last stops it, and a changed `sing-box.json` restarts it. Do not start, stop or
+`kill` sing-box or the launchers yourself — Surge and the launchers manage them, and `clean` stops
+them when the user removes everything.
 
 Requires macOS, Node.js >= 20, `sing-box` on disk, and a Surge profile containing `[Proxy]` and
 `[Proxy Group]` sections.
@@ -43,11 +48,14 @@ npm i -g surge-vless-bridge
 #    (see "Where the config file lands" below)
 surge-vless-bridge init --no-input --subscription-url "$URL" --surge-config "$PROFILE"
 
-# 4. Check the file: subscriptionUrls and surgeConfigPath must both be filled in
+# 4. Check the file: subscriptionUrls and surgeConfigPath must both be filled in, then make it
+#    readable by the user only — it holds the subscription credential
+chmod 600 ~/.config/surge-vless-bridge/config.json
+
 # 5. Preview — writes nothing
 surge-vless-bridge sync --dry-run
 
-# 6. Apply, then verify
+# 6. Apply, then verify (see "Verifying the result")
 surge-vless-bridge sync
 surge-vless-bridge doctor
 ```
@@ -64,6 +72,35 @@ Step 5 before step 6, always. `--dry-run` prints the node names and ports that a
 produce; show that list to the user before touching their profile.
 
 `doctor` exits non-zero when any check FAILs, so you can gate on its exit code.
+
+## Verifying the result
+
+`sync` already ran `sing-box check` on the generated config, so there is nothing to re-validate. What is
+left to confirm is that Surge picked it up:
+
+1. The `sync` output ends with `Surge profile reloaded via http-api` or `via surge-cli`. If it printed
+   `Could not reload Surge automatically`, ask the user to reload the profile from the Surge menu.
+2. `doctor` shows `OK ports` and `OK sing-box`. Before any node has been used, `sing-box: not running`
+   is expected — Surge only starts nodes on demand.
+3. Optional, read-only for the profile: `surge-cli test-group VLESS` (use the bundled path that
+   `doctor` prints on its `auto-reload` line if `surge-cli` is not on `PATH`) makes Surge start the
+   nodes. A second `doctor` should then report `one shared process serving N nodes`.
+4. If sing-box does not stay up, read `~/.config/surge-vless-bridge/nodes/run/sing-box.log`.
+
+A `test-group` result showing no latency for a node means that node cannot connect; it says nothing
+about the setup itself. Report it, do not try to fix the subscription.
+
+## Reporting back
+
+End with a short summary and nothing secret in it:
+
+- config file path and Surge profile path;
+- number of nodes synced and the policy group name;
+- the backup path printed by `sync`, so the user knows how to undo (`surge-vless-bridge restore`);
+- `doctor` results, and any WARN with its suggested fix.
+
+Never include the subscription URL, node UUIDs, or the contents of `vless_nodes.txt` /
+`sing-box.json` — they all carry credentials.
 
 ## Where the config file lands
 
@@ -96,7 +133,7 @@ Minimum viable file:
 
 `init` writes `"subscriptionUrls": [""]` — replace the empty string, don't append to it. Multiple URLs
 are merged into one policy group. `vlessNodes` accepts raw `vless://` links for users without a
-subscription. All other keys are optional; see [Config File](../README.md#config-file).
+subscription. All other keys are optional; see [Config File](../README.en.md#config-file).
 
 Any config key can be overridden per-run by a flag (`--subscription-url`, `--surge-config`,
 `--group-name`, `--port-start`, …). Prefer editing the config file for anything permanent — flags
@@ -121,9 +158,9 @@ profiles. You almost certainly cannot answer those questions:
 | --- | --- | --- | --- |
 | `init` | no | no | Interactive on a TTY — use `--no-input`. Fails if the config exists; `--force` overwrites |
 | `sync` | yes | yes | The main command. `--dry-run` to preview |
-| `rebuild` | no | yes | Re-emits the Surge block from existing local configs |
+| `rebuild` | no | yes | Re-emits the Surge block from the local `sing-box.json` |
 | `restore` | no | yes | Latest backup, or `restore <path>` |
-| `clean` | no | yes | Deletes generated configs + the managed block |
+| `clean` | no | yes | Stops sing-box, deletes generated files + the managed block |
 | `doctor` | no | no | Exit code 1 when a check FAILs |
 
 Safe to run unprompted: `doctor`, `sync --dry-run`, `help`, `version`.
@@ -144,8 +181,10 @@ Each line is `OK` / `WARN` / `FAIL` plus a label.
 | `FAIL singBoxBinary` | `sing-box` not found | `brew install sing-box`, or set `singBoxBinary` |
 | `FAIL proxy-section` / `proxy-group-section` | Profile lacks `[Proxy]` / `[Proxy Group]` | The user must add the section; the tool will not create it |
 | `WARN outputDir` / `backupDir` | Not created yet | Expected before the first `sync` |
-| `WARN surge-http-api` | No auto-reload path | Suggest `http-api = <key>@127.0.0.1:6171` under `[General]` |
-| `OK ports … in use` | Expected while Surge is running those nodes | Nothing to do |
+| `WARN auto-reload` | Neither the HTTP API nor `surge-cli` is available | Suggest `http-api = <key>@127.0.0.1:6171` under `[General]`, or reload manually after each sync |
+| `OK ports … in use by the shared sing-box` | Surge is running the nodes | Nothing to do |
+| `WARN ports … in use by another program` | Another app holds a node port | Tell the user which program; or set a different `portStart` and `sync` again |
+| `OK sing-box: not running` | No node has been used yet | Nothing to do — Surge starts it on demand |
 
 ## Common errors
 
@@ -155,7 +194,9 @@ Each line is `OK` / `WARN` / `FAIL` plus a label.
 | `Config file already exists: <path>` | `init` on an existing config | Edit it instead of re-running with `--force` |
 | `No VLESS nodes from any configured source; refusing to update the Surge profile.` | Subscription empty, expired, or unreachable | Nothing was written. Have the user verify the URL in a browser |
 | `Surge profile is missing the [Proxy] section.` | Profile is not a usable Surge config | Confirm `surgeConfigPath` points at the right file |
-| `sing-box rejected <file>: …` | A node produced an invalid config | Nothing was applied; report the stderr to the user |
+| `sing-box rejected sing-box.json: …` | A node produced an invalid config | Nothing was applied; report the stderr to the user |
+| `Found per-node configs from an older release …` | `rebuild` after upgrading from a version that ran one sing-box per node | Run `sync` once (with the user's OK); it migrates |
+| `No sing-box.json found …` | `rebuild` before any `sync` | Run `sync` instead |
 | `Surge profile not found: <path>` | Bad `surgeConfigPath` | Ask the user to re-copy the path |
 | `Unknown flag: --x` | Typo | Flags are rejected, not ignored — check `help` |
 
@@ -169,5 +210,5 @@ Each line is `OK` / `WARN` / `FAIL` plus a label.
   profile nor the previous node configs are modified when it errors. Do not "clean up" after a failure.
 - Do not hand-edit the Surge profile between the markers; the next `sync` overwrites that block.
   Changes outside the markers are preserved.
-- Surge does not reload on its own. After a successful `sync`, tell the user to reload the profile if
-  `doctor` reported `WARN surge-http-api`.
+- Surge does not reload on its own. The CLI reloads it through the HTTP API or `surge-cli`; if `sync`
+  printed `Could not reload Surge automatically`, tell the user to reload the profile by hand.

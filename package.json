@@ -50,7 +50,7 @@
     "docs",
     "LICENSE",
     "README.md",
-    "README.zh-CN.md",
+    "README.en.md",
     "CHANGELOG.md",
     "CHANGELOG.zh-CN.md",
     ".surge-vless-bridge.example.json"
