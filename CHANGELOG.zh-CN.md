@@ -5,7 +5,7 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
-## [未发布]
+## [1.7.0] - 2026-10-30
 
 ### 新增
 
@@ -228,6 +228,7 @@
 首批公开发布：`init` / `sync` / `rebuild` / `restore` / `doctor` 命令、VLESS 订阅解析、按节点生成
 sing-box 配置、Surge 配置备份，以及 npm 发布流程。
 
+[1.7.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.4.0...v1.5.0
