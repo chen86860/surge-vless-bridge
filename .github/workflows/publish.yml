@@ -12,6 +12,12 @@ permissions:
   id-token: write
   contents: read
 
+# Pushing a release commit and its tag together starts two runs; queue them so the second one sees
+# what the first one published.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -22,4 +28,24 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
       - run: npm ci
-      - run: npm publish --provenance --access public
+      - name: Publish unless this version is already on npm
+        # Explicit so the step runs with pipefail: without it the `| tee` below hides publish failures.
+        shell: bash
+        run: |
+          name=$(node -p "require('./package.json').name")
+          version=$(node -p "require('./package.json').version")
+
+          if npm view "$name@$version" version >/dev/null 2>&1; then
+            echo "::notice::$name@$version is already on npm; skipping publish."
+            exit 0
+          fi
+
+          # A version published moments ago can still read as missing above, so a conflict on this
+          # exact version means another run got there first, not that the release failed.
+          if ! npm publish --provenance --access public 2>&1 | tee publish.log; then
+            if grep -qE 'E409|EPUBLISHCONFLICT|previously (published|staged)' publish.log; then
+              echo "::notice::$name@$version was published by another run; skipping."
+              exit 0
+            fi
+            exit 1
+          fi
