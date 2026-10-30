@@ -5,21 +5,21 @@
 
 [中文文档](./README.md) · [Changelog](./CHANGELOG.md)
 
-**Surge Mac VLESS support, via sing-box.** A Node.js CLI that converts a VLESS subscription — including
-REALITY and XTLS Vision nodes — into Surge Mac `external` proxy entries backed by a single local
-`sing-box` process.
+**Use VLESS subscriptions in Surge Mac.**
 
-Surge Mac does not natively support the VLESS protocol. This tool bridges the gap: it fetches your
-subscription, generates one `sing-box` config shared by every node, and keeps your Surge profile
-updated — so VLESS nodes work seamlessly through Surge's rules, policy groups, and dashboard.
+Surge Mac does not support the VLESS protocol, REALITY and XTLS Vision nodes included. This command-line
+tool turns your VLESS subscription into nodes Surge can use, while a local
+[sing-box](https://github.com/SagerNet/sing-box) handles the actual connections. You keep using Surge's
+rules, policy groups and dashboard as usual, and sync again whenever the subscription changes.
 
-After a `sync`, your Surge profile gains these two parts and is otherwise left as it was:
+Once set up, your Surge profile gains nodes like these and a `VLESS` policy group, and is otherwise left
+as it was:
 
 ```ini
 [Proxy]
 # vless start
-HK 01 = external, exec=/bin/sh, args=/Users/you/.config/surge-vless-bridge/nodes/launcher.sh, args=/opt/homebrew/bin/sing-box, local-port=2081, addresses=203.0.113.10
-JP 01 = external, exec=/bin/sh, args=/Users/you/.config/surge-vless-bridge/nodes/launcher.sh, args=/opt/homebrew/bin/sing-box, local-port=2082, addresses=203.0.113.20
+HK 01 = external, exec=/bin/sh, args=…/launcher.sh, args=…/sing-box, local-port=2081, addresses=203.0.113.10
+JP 01 = external, exec=/bin/sh, args=…/launcher.sh, args=…/sing-box, local-port=2082, addresses=203.0.113.20
 # vless end
 
 [Proxy Group]
@@ -28,31 +28,31 @@ VLESS = url-test, HK 01, JP 01, no-alert=0, hidden=0
 
 ## Prerequisites
 
-- Surge Mac on macOS, with a profile containing `[Proxy]` and `[Proxy Group]` sections
+- Surge Mac on macOS, with an active profile that has `[Proxy]` and `[Proxy Group]` sections
 - Node.js 20 or later
 - [sing-box](https://github.com/SagerNet/sing-box) (`brew install sing-box`)
 
 ## Setting this up with an AI agent
 
-Nothing to install first. Paste this into Claude Code, Cursor, Codex or a similar agent and it handles
-the whole setup — checking for and installing `sing-box` and the CLI, creating the config, syncing, and
-verifying:
+No need to install this tool first. Paste this into Claude Code, Cursor, Codex or a similar agent that
+can use your terminal; it checks for and installs sing-box and this tool, then configures, syncs and
+verifies everything:
 
 ```text
 Read https://github.com/chen86860/surge-vless-bridge/blob/master/docs/agent-setup.md
 and set up surge-vless-bridge on this Mac for me.
 ```
 
-[docs/agent-setup.md](./docs/agent-setup.md) tells the agent the command order, the config path rules,
-how to read `doctor`, and which commands must not run without your confirmation. It will ask you for
-your subscription URL and confirm your Surge profile path; everything else has a sensible default. It
-previews with `sync --dry-run` before writing anything, and ends with a short report: node count, backup
-path and verification results.
+[docs/agent-setup.md](./docs/agent-setup.md) is the agent's runbook: which commands to run in what
+order, how to read the checks, and what needs your go-ahead first. It asks you only two things — your
+subscription URL and which Surge profile to write to — and uses defaults for everything else. Before
+changing your Surge profile it shows you a preview, and it finishes with the node count, the backup
+location and the check results.
 
-> Treat the subscription URL like a password: hand it to the agent on your machine, never to a public
-> issue, chat or screenshot. The guide tells the agent never to echo it back.
+> Treat the subscription URL like a password: giving it to the agent on your machine is fine, but never
+> post it in a public issue, chat or screenshot. The runbook also tells the agent never to echo it back.
 
-Prefer to do it yourself? Follow the manual setup below.
+Prefer to do it yourself? Read on.
 
 ## Manual setup
 
@@ -64,18 +64,18 @@ npm i -g surge-vless-bridge
 
 ### Quick Start
 
-**1. Create a config file:**
+**1. Create this tool's config:**
 
 ```bash
 surge-vless-bridge init
 ```
 
-`init` asks for your subscription URL, then lets you pick a Surge profile with ↑/↓, and writes
-`~/.config/surge-vless-bridge/config.json` — printing the exact path. Press Enter to skip the URL or
-Esc to skip the profile and fill either in by hand later. Pass `--no-input` to skip both and just
-write the template.
+`init` asks for your subscription URL, lets you pick the Surge profile to write to with ↑/↓, then
+creates `~/.config/surge-vless-bridge/config.json` and prints its path. To answer later instead, press
+Enter at the URL or Esc at the profile and fill them in by hand; `--no-input` skips the questions and
+writes just the template.
 
-**2. Edit the config file** (only if you skipped a question):
+**2. Fill in the config** (only if you skipped a question):
 
 ```bash
 # open the file printed by init, e.g.
@@ -94,7 +94,7 @@ Fill in at minimum:
 - **`subscriptionUrls`**: Your VLESS subscription URLs. Use one or more URLs; nodes from all
   subscriptions are merged into the same Surge policy group.
 
-- **`surgeConfigPath`**: Absolute path to your Surge profile. To find it:
+- **`surgeConfigPath`**: Full path to your Surge profile (a `.conf` file). To find it:
   1. Click the Surge icon in the **macOS menu bar**
   2. Go to **Switch Profile**, then click **Show in Finder** on your active profile
   3. Press `⌘ + i` on the file in Finder and copy the full path including the filename
@@ -112,10 +112,10 @@ surge-vless-bridge sync --dry-run   # shows the nodes and changes, writes nothin
 surge-vless-bridge sync
 ```
 
-`sync` fetches the subscription, generates and validates the sing-box config, backs up your Surge
-profile, updates it, and asks Surge to reload.
+`sync` fetches the subscription, generates and validates the nodes, backs up your Surge profile, writes
+the changes and reloads Surge.
 
-**4. Verify everything is correct:**
+**4. Check that everything is in order:**
 
 ```bash
 surge-vless-bridge doctor
@@ -153,7 +153,7 @@ the shared `sing-box.json`, and `rebuild` refuses to run until it has.
 
 ## Config File
 
-Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
+This tool's own config, created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 
 Inside a git repository, `<repo root>/.surge-vless-bridge.json` is used only if it **already exists**;
 otherwise the global config above is, so `sync` works from any project directory. `--config <path>`
@@ -205,7 +205,7 @@ failing the sync.
 | `policyGroupName`   | `"VLESS"`                              | Surge policy group name to populate                  |
 | `portStart`         | `2081`                                 | First local port; node N uses `portStart + N - 1`    |
 | `singBoxBinary`     | auto-detected via `which sing-box`     | Path to the `sing-box` binary                        |
-| `outputDir`         | `~/.config/surge-vless-bridge/nodes`   | Where the shared sing-box config and launcher live   |
+| `outputDir`         | `~/.config/surge-vless-bridge/nodes`   | Where the sing-box config and launcher script live   |
 | `backupDir`         | `~/.config/surge-vless-bridge/backups` | Where Surge profile backups are stored               |
 | `backupKeep`        | `20`                                   | How many backups to keep; older ones are pruned      |
 | `autoReload`        | `true`                                 | Ask Surge to reload the profile after it changes     |
@@ -332,8 +332,8 @@ See `surge-vless-bridge help` for the full list. Mistyped flags are rejected, no
 
 ### Automatic reload
 
-Surge does not watch its profile, so a synced profile only takes effect after a reload. The CLI does
-this for you:
+Surge does not notice when its profile changes, so a sync only takes effect after a reload. The CLI
+does this for you:
 
 1. If `[General]` in your Surge profile enables the HTTP API (`http-api = your-key@127.0.0.1:6171`),
    it reloads through that;
@@ -351,7 +351,7 @@ surge-vless-bridge clean          # stops sing-box, removes generated files and 
 npm uninstall -g surge-vless-bridge
 ```
 
-`clean` backs the Surge profile up first and leaves the rest of it untouched. Your config and backups
+`clean` backs the Surge profile up first and leaves the rest of it untouched. This tool's config and backups
 stay in `~/.config/surge-vless-bridge/`; delete that directory by hand once you no longer need them.
 
 ## Troubleshooting
@@ -373,11 +373,11 @@ If something goes wrong, `surge-vless-bridge restore` brings back the latest bac
 ## How it works: one sing-box for every node
 
 Surge starts one process per `external` node, and a url-test group starts every node in the group as
-soon as it tests them, then keeps them running. Running sing-box directly per node would mean 20
-processes for 20 nodes — about 880 MB measured.
+soon as it tests them, then keeps them running. Running sing-box directly per node would mean one
+sing-box process for every node.
 
 Instead the CLI writes a **single** `sing-box.json`: each node gets its own local SOCKS inbound port and
-a route rule pinning it to its outbound. Every Surge node runs a tiny `launcher.sh` (~2.5 MB):
+a route rule pinning it to its outbound. Every Surge node runs a tiny `launcher.sh` script:
 
 - the first launcher starts sing-box, later ones reuse it, and the last one to exit stops it;
 - every 5 seconds each launcher restarts sing-box if it died or `sing-box.json` changed, so a new config
@@ -385,9 +385,8 @@ a route rule pinning it to its outbound. Every Surge node runs a tiny `launcher.
 - `sing-box check` runs before every start; its output goes to `nodes/run/sing-box.log`;
 - launchers exit on their own once Surge is gone or `clean` has run.
 
-Measured in Surge, 5 nodes drop from ~220 MB to ~58 MB; extrapolating from the measured parts, 20 nodes
-drop from ~880 MB to ~90 MB. The trade-off is that all nodes share one process, so `sync` validates the
-whole config with `sing-box check` before touching Surge — one broken node cannot take the rest down.
+Because all nodes share one process, `sync` validates the whole config with `sing-box check` before
+touching Surge — one broken node cannot take the rest down.
 
 ## How sync protects your profile
 

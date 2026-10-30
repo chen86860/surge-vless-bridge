@@ -5,19 +5,19 @@
 
 [English](./README.en.md) · [更新日志](./CHANGELOG.zh-CN.md)
 
-**让 Surge Mac 支持 VLESS，底层由 sing-box 承接。** 基于 Node.js 的 CLI，把 VLESS 订阅（含 REALITY、XTLS
-Vision 节点）转换为 Surge Mac 可用的 `external` 外部代理节点。
+**在 Surge Mac 里使用 VLESS 订阅。**
 
-Surge Mac 不原生支持 VLESS 协议。该工具自动拉取订阅、生成一份所有节点共用的 `sing-box` 配置、并保持 Surge
-配置同步更新，让你继续使用 Surge 的规则、策略组和面板来使用 VLESS 节点。
+Surge Mac 不支持 VLESS 协议，包括 REALITY 和 XTLS Vision 节点。这个命令行工具把你的 VLESS 订阅转换成 Surge
+能用的节点，实际连接由本机的 [sing-box](https://github.com/SagerNet/sing-box) 完成。你照常使用 Surge 的规则、
+策略组和面板，订阅更新后再同步一次即可。
 
-`sync` 之后，Surge 配置里会多出这样两部分，其余内容保持不变：
+配置完成后，你的 Surge 配置里会多出下面这样的节点和一个 `VLESS` 策略组，其余内容保持不变：
 
 ```ini
 [Proxy]
 # vless start
-HK 01 = external, exec=/bin/sh, args=/Users/you/.config/surge-vless-bridge/nodes/launcher.sh, args=/opt/homebrew/bin/sing-box, local-port=2081, addresses=203.0.113.10
-JP 01 = external, exec=/bin/sh, args=/Users/you/.config/surge-vless-bridge/nodes/launcher.sh, args=/opt/homebrew/bin/sing-box, local-port=2082, addresses=203.0.113.20
+HK 01 = external, exec=/bin/sh, args=…/launcher.sh, args=…/sing-box, local-port=2081, addresses=203.0.113.10
+JP 01 = external, exec=/bin/sh, args=…/launcher.sh, args=…/sing-box, local-port=2082, addresses=203.0.113.20
 # vless end
 
 [Proxy Group]
@@ -26,28 +26,28 @@ VLESS = url-test, HK 01, JP 01, no-alert=0, hidden=0
 
 ## 前置条件
 
-- macOS 上的 Surge Mac，配置文件中包含 `[Proxy]` 和 `[Proxy Group]` 区块
+- macOS 上的 Surge Mac，当前使用的 Surge 配置里有 `[Proxy]` 和 `[Proxy Group]` 两个区块
 - Node.js 20 或更高版本
 - [sing-box](https://github.com/SagerNet/sing-box)（`brew install sing-box`）
 
 ## 让 AI Agent 帮你完成配置
 
-不需要先装任何东西。把下面这段话发给 Claude Code、Cursor、Codex 之类能操作本机终端的 agent，检测并安装
-`sing-box` 和 CLI、生成配置、同步、验证，整套流程它都能完成：
+不用提前安装本工具。把下面这段话发给 Claude Code、Cursor、Codex 这类能操作本机终端的 agent，它会检查并安装
+sing-box 和本工具，然后完成配置、同步和验证：
 
 ```text
 阅读 https://github.com/chen86860/surge-vless-bridge/blob/master/docs/agent-setup.md
 然后帮我在这台 Mac 上配置好 surge-vless-bridge
 ```
 
-[docs/agent-setup.md](./docs/agent-setup.md) 里写清了命令顺序、配置文件的位置、`doctor` 输出怎么读，
-以及哪些命令必须先经过你确认。Agent 会向你索要订阅地址并确认 Surge 配置文件路径，其余项都有默认值；在真正
-写入之前，它会先用 `sync --dry-run` 给你看一遍改动，结束时只汇报节点数量、备份位置和验证结果。
+[docs/agent-setup.md](./docs/agent-setup.md) 是写给 agent 的操作手册：按什么顺序执行命令、怎么读检查结果、
+哪些操作必须先征得你同意。它只会问你两件事：订阅地址，以及要写入哪个 Surge 配置；其余都用默认值。真正改动
+Surge 配置前，它会先把预览结果给你看，结束时汇报节点数量、备份位置和检查结果。
 
-> 订阅地址相当于密码。直接在对话里发给本机 agent 即可，不要贴到公开 Issue、群聊或截图里；文档也要求 agent
-> 不在任何输出中回显它。
+> 订阅地址相当于密码。发给本机的 agent 没问题，但不要贴到公开 Issue、群聊或截图里；手册也要求 agent 不在任何
+> 输出中回显它。
 
-想自己动手？往下看手动配置。
+想自己动手？继续往下看。
 
 ## 手动配置
 
@@ -59,17 +59,17 @@ npm i -g surge-vless-bridge
 
 ### 快速开始
 
-**1. 生成配置文件：**
+**1. 生成本工具的配置：**
 
 ```bash
 surge-vless-bridge init
 ```
 
-`init` 会先询问订阅地址，再用 ↑/↓ 选择 Surge 配置文件，然后写入
-`~/.config/surge-vless-bridge/config.json` 并打印具体路径。订阅地址直接回车、配置文件按 Esc 即可跳过，
-之后手动填写；加 `--no-input` 则跳过全部提问，只写模板。
+`init` 会先问订阅地址，再让你用 ↑/↓ 选择要写入的 Surge 配置，最后生成
+`~/.config/surge-vless-bridge/config.json` 并打印路径。不想现在回答的话，订阅地址直接回车、Surge 配置按 Esc
+跳过，之后再手动填写；加 `--no-input` 则不提问，只生成模板。
 
-**2. 编辑配置文件**（仅在跳过了提问时需要）：
+**2. 补全配置**（只有跳过了提问才需要）：
 
 ```bash
 # 用 init 打印的路径打开文件，例如：
@@ -87,27 +87,27 @@ open ~/.config/surge-vless-bridge/config.json
 
 - **`subscriptionUrls`**：填入一个或多个 VLESS 订阅地址，所有订阅里的节点会合并到同一个 Surge 策略组。
 
-- **`surgeConfigPath`**：Surge 配置文件的绝对路径。获取方式：
+- **`surgeConfigPath`**：Surge 配置文件（`.conf`）的完整路径。查找方法：
   1. 点击 macOS **菜单栏**中的 Surge 图标
   2. 选择 **切换配置**，在当前使用的配置文件上点击 **在访达中显示**
   3. 在 Finder 中对该文件按 `⌘ + i`，复制"位置"下的完整路径，拼上文件名填入
 
-  > 也可以通过终端快速查看所有配置文件：
+  > 也可以在终端里列出所有 Surge 配置：
   >
   > ```bash
   > ls ~/Library/Application\ Support/Surge/Profiles/
   > ```
 
-**3. 预览并执行同步：**
+**3. 预览，然后同步：**
 
 ```bash
 surge-vless-bridge sync --dry-run   # 只看会生成哪些节点和改动，不写入任何文件
 surge-vless-bridge sync
 ```
 
-`sync` 会依次完成：拉取订阅 → 生成并校验 sing-box 配置 → 备份 Surge 配置 → 更新 Surge 配置 → 让 Surge 重载。
+`sync` 会拉取订阅、生成并校验节点、备份 Surge 配置、写入改动，最后让 Surge 重载。
 
-**4. 验证配置是否正常：**
+**4. 检查是否一切正常：**
 
 ```bash
 surge-vless-bridge doctor
@@ -115,8 +115,8 @@ surge-vless-bridge doctor
 
 **5. 在 Surge 里使用这些节点：**
 
-`sync` 只负责写入节点和 `VLESS` 策略组，**不会改动你的规则**，流量要走这些节点，还需要你在 Surge 配置里引用
-`VLESS`。最常见的做法是把它加进你平时切换的选择组：
+`sync` 只写入节点和 `VLESS` 策略组，**不会改动你的规则**。要让流量走这些节点，需要在 Surge 配置里引用
+`VLESS`，最常见的做法是把它加进你平时切换的那个策略组：
 
 ```ini
 [Proxy Group]
@@ -140,9 +140,9 @@ surge-vless-bridge sync
 升级后执行一次 `sync`，让生成的文件跟上新版本。从 1.5.x 及更早版本升级时这一步是必须的：旧版每个节点一个
 sing-box 配置，`sync` 会把它们迁移成共用的 `sing-box.json`，迁移完成前 `rebuild` 会拒绝执行。
 
-## 配置文件
+## 本工具的配置文件
 
-由 `init` 创建，默认路径：`~/.config/surge-vless-bridge/config.json`。
+由 `init` 创建，默认路径为 `~/.config/surge-vless-bridge/config.json`。
 
 在 git 仓库里运行时，只有仓库根目录**已经存在** `.surge-vless-bridge.json` 才会使用它，否则仍然使用上面的全局
 配置，所以在任何项目目录里都可以直接运行 `sync`。`--config <path>` 可以指定其他配置文件。
@@ -169,7 +169,7 @@ sing-box 配置，`sync` 会把它们迁移成共用的 `sing-box.json`，迁移
 
 | 字段              | 说明                     |
 | ----------------- | ------------------------ |
-| `surgeConfigPath` | Surge 配置文件的绝对路径 |
+| `surgeConfigPath` | Surge 配置文件的完整路径 |
 
 再加上**至少一种**节点来源：
 
@@ -191,7 +191,7 @@ sing-box 配置，`sync` 会把它们迁移成共用的 `sing-box.json`，迁移
 | `policyGroupName`   | `"VLESS"`                              | 要写入的 Surge 策略组名称                        |
 | `portStart`         | `2081`                                 | 起始本地端口，第 N 个节点用 `portStart + N - 1`  |
 | `singBoxBinary`     | 自动检测（`which sing-box`）           | `sing-box` 可执行文件路径                        |
-| `outputDir`         | `~/.config/surge-vless-bridge/nodes`   | 共享 sing-box 配置与 launcher 的目录             |
+| `outputDir`         | `~/.config/surge-vless-bridge/nodes`   | sing-box 配置和启动脚本的存放目录                |
 | `backupDir`         | `~/.config/surge-vless-bridge/backups` | Surge 配置备份目录                               |
 | `backupKeep`        | `20`                                   | 保留的备份数量，超出的旧备份自动清理             |
 | `autoReload`        | `true`                                 | 配置变更后自动让 Surge 重载                      |
@@ -283,7 +283,7 @@ Surge 的 `addresses=` 只接受单个地址。当一个域名解析出多个结
 
 | 命令                                | 说明                                                       |
 | ----------------------------------- | ---------------------------------------------------------- |
-| `surge-vless-bridge init`           | 生成配置文件，交互询问订阅地址与 Surge 配置路径            |
+| `surge-vless-bridge init`           | 生成本工具的配置，交互询问订阅地址与 Surge 配置            |
 | `surge-vless-bridge sync`           | 拉取订阅 → 生成共享 sing-box 配置 → 更新 Surge             |
 | `surge-vless-bridge rebuild`        | 仅基于已有本地配置重建 Surge 区块（不访问网络）            |
 | `surge-vless-bridge restore [path]` | 恢复最近一次 Surge 配置备份，或恢复指定的备份文件          |
@@ -297,11 +297,11 @@ Surge 的 `addresses=` 只接受单个地址。当一个域名解析出多个结
 | `--dry-run`               | `sync`：只预览节点、端口和配置改动，不写入任何文件 |
 | `--no-reload`             | `sync` / `rebuild` / `restore`：不自动重载 Surge   |
 | `--no-input`              | `init`：不提问，直接写出配置模板                   |
-| `--force`                 | `init`：覆盖已有的配置文件                         |
+| `--force`                 | `init`：覆盖已有的配置                             |
 | `--yes`                   | `clean`：跳过确认提示                              |
 | `--config <path>`         | 使用指定的配置文件                                 |
 
-配置文件里的大部分字段也可以用命令行参数临时覆盖，例如：
+配置里的大部分字段也可以用命令行参数临时覆盖，例如：
 
 ```bash
 surge-vless-bridge sync --subscription-url https://example.com/sub --group-name VLESS
@@ -311,7 +311,7 @@ surge-vless-bridge sync --subscription-url https://example.com/sub --group-name 
 
 ### 自动重载
 
-Surge 不会监听配置文件变化，同步后需要重载才会生效。本工具会自动处理：
+Surge 不会自动发现配置被改动，需要重载才会生效。本工具会自动处理：
 
 1. 如果 Surge 配置的 `[General]` 里开启了 HTTP API（`http-api = your-key@127.0.0.1:6171`），优先通过它重载；
 2. 否则使用 `surge-cli reload`：先找 `PATH`，再找 Surge 安装包内自带的
@@ -327,7 +327,7 @@ surge-vless-bridge clean          # 停止 sing-box，移除生成的文件和 S
 npm uninstall -g surge-vless-bridge
 ```
 
-`clean` 执行前会先备份 Surge 配置，其余内容保持不变。配置文件和备份仍留在 `~/.config/surge-vless-bridge/`，
+`clean` 执行前会先备份 Surge 配置，其余内容保持不变。本工具的配置和备份仍留在 `~/.config/surge-vless-bridge/`，
 确认不再需要后可以手动删除该目录。
 
 ## 排错
@@ -348,19 +348,18 @@ npm uninstall -g surge-vless-bridge
 ## 工作原理：所有节点共用一个 sing-box
 
 Surge 的每个 `external` 节点都会启动一个进程，而 url-test 策略组一测速就会把组里所有节点同时拉起来并一直
-常驻。如果每个节点直接运行一个 sing-box，20 个节点就是 20 个进程，实测约 880 MB 内存。
+常驻。如果每个节点直接运行一个 sing-box，有多少个节点就会有多少个 sing-box 进程。
 
 因此本工具只生成**一份** `sing-box.json`：每个节点在其中占一个本地 SOCKS 入站端口，并通过路由规则绑定到
-自己的出站。Surge 里的每个节点启动的是一个很小的 `launcher.sh`（约 2.5 MB）：
+自己的出站。Surge 里的每个节点运行的是一个很小的启动脚本 `launcher.sh`：
 
-- 第一个启动的 launcher 拉起 sing-box，之后的直接复用，最后一个退出时关闭 sing-box；
-- launcher 每 5 秒检查一次：sing-box 意外退出、或 `sing-box.json` 内容变了，就重新启动它，所以即使没有
+- 第一个启动的脚本拉起 sing-box，之后的直接复用，最后一个退出时关闭 sing-box；
+- 每个脚本每 5 秒检查一次：sing-box 意外退出，或 `sing-box.json` 内容变了，就重新启动它，所以即使没有
   重载 Surge，新配置也会生效；
 - 每次启动 sing-box 前都会先跑 `sing-box check`，输出写在 `nodes/run/sing-box.log`；
-- Surge 退出或执行了 `clean` 之后，残留的 launcher 会自行退出。
+- Surge 退出或执行了 `clean` 之后，残留的启动脚本会自行退出。
 
-在 Surge 中实测，5 个节点从约 220 MB 降到约 58 MB；按单项实测值推算，20 个节点约从 880 MB 降到 90 MB。
-代价是所有节点在同一个进程里：`sync` 会在写入 Surge 之前先用 `sing-box check` 校验整份配置，避免一个坏节点
+由于所有节点在同一个进程里，`sync` 会在写入 Surge 之前先用 `sing-box check` 校验整份配置，避免一个坏节点
 拖垮全部节点。
 
 ## 同步过程如何保护你的配置
@@ -374,7 +373,7 @@ Surge 的每个 `external` 节点都会启动一个进程，而 url-test 策略�
 - 所有文件都先写入临时文件再改名替换，写到一半中断也不会留下残缺的 Surge 配置；符号链接形式的 Surge 配置
   （例如放在 iCloud 里）会更新链接指向的文件，链接本身不变。
 - 本工具生成的文件（配置、节点、备份）权限都是 `600`，目录是 `700`，同一台 Mac 上的其他用户读不到订阅地址
-  和节点 UUID。Surge 配置文件保留原来的权限。旧版本生成的配置文件如果对其他用户可读，`doctor` 会给出提示。
+  和节点 UUID。Surge 配置保留原来的权限。旧版本生成的配置如果对其他用户可读，`doctor` 会给出提示。
 
 ---
 
