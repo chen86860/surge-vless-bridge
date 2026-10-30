@@ -57,8 +57,12 @@ const readProfile = (config) => readFile(config.surgeConfigPath, 'utf8');
 const policyGroupLine = async (config) =>
   (await readProfile(config)).split('\n').find((line) => line.startsWith(`${config.policyGroupName} =`));
 
-const nodeConfigFiles = async (config) =>
-  (await readdir(config.outputDir)).filter((entry) => /^sing-box\[\d+\]\.json$/.test(entry)).sort();
+const sharedConfigPath = (config) => path.join(config.outputDir, 'sing-box.json');
+
+const readSharedConfig = async (config) => JSON.parse(await readFile(sharedConfigPath(config), 'utf8'));
+
+const generatedFiles = async (config) =>
+  (await readdir(config.outputDir).catch(() => [])).filter((entry) => !entry.startsWith('.')).sort();
 
 const captureConsole = async (method, run) => {
   const original = console[method];
@@ -77,10 +81,12 @@ module.exports = {
   PROFILE_TEXT,
   STUB_SING_BOX,
   captureConsole,
+  generatedFiles,
   makeConfig,
-  nodeConfigFiles,
   policyGroupLine,
   readProfile,
+  readSharedConfig,
+  sharedConfigPath,
   subscriptionUrl,
   vlessLink,
 };

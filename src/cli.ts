@@ -71,10 +71,10 @@ Usage:
 
 Commands:
   init       Create a config, asking for the subscription and Surge profile
-  sync       Fetch subscriptions, generate sing-box configs, update Surge
-  rebuild    Rebuild the Surge block from local sing-box configs only
+  sync       Fetch subscriptions, generate the shared sing-box config, update Surge
+  rebuild    Rebuild the Surge block from the local sing-box config only
   restore    Restore the latest backup, or the one given as an argument
-  clean      Remove generated configs and the managed block from Surge
+  clean      Stop sing-box, remove generated files and the managed block
   doctor     Check paths, ports and required Surge sections
   version    Print the version
   help       Print this help
@@ -84,7 +84,7 @@ Config flags:
   --subscription-url <url>   Subscription URL
   --surge-config <path>      Surge profile path
   --sing-box-bin <path>      sing-box executable
-  --output-dir <path>        Where node configs are written
+  --output-dir <path>        Where the sing-box config and launcher are written
   --backup-dir <path>        Where profile backups are stored
   --group-name <name>        Surge policy group name
   --port-start <number>      First local SOCKS port
@@ -468,13 +468,13 @@ const main = async () => {
       break;
     }
     case 'clean': {
-      if (!parsed.options.yes && !(await confirm('Remove all generated node configs and the Surge managed block?'))) {
+      if (!parsed.options.yes && !(await confirm('Remove the generated sing-box config and the Surge managed block?'))) {
         console.log('Aborted.');
         break;
       }
 
       const result = await cleanManagedArtifacts(loaded.config);
-      console.log(`Removed ${result.removedConfigs} node config${result.removedConfigs === 1 ? '' : 's'}.`);
+      console.log(`Removed ${result.removedNodes} node${result.removedNodes === 1 ? '' : 's'}.`);
       console.log(`Backup saved to ${result.backupPath}`);
       break;
     }

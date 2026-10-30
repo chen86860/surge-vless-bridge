@@ -1,9 +1,18 @@
 import { execFile } from 'node:child_process';
+import { access, constants } from 'node:fs/promises';
+import { delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
 const RELOAD_TIMEOUT_MS = 10_000;
+
+// Surge ships surge-cli inside the app bundle and does not link it onto PATH, so PATH alone misses it
+// on a default install.
+const BUNDLED_SURGE_CLI_PATHS = [
+  '/Applications/Surge.app/Contents/Applications/surge-cli',
+  join(process.env.HOME ?? '', 'Applications/Surge.app/Contents/Applications/surge-cli'),
+];
 
 type HttpApiSettings = {
   key: string;
@@ -56,8 +65,26 @@ const reloadViaHttpApi = async ({ key, origin }: HttpApiSettings) => {
   }
 };
 
-const reloadViaCli = async () => {
-  await execFileAsync('surge-cli', ['reload'], { timeout: RELOAD_TIMEOUT_MS });
+const isExecutable = (path: string) =>
+  access(path, constants.X_OK).then(
+    () => true,
+    () => false,
+  );
+
+export const findSurgeCli = async () => {
+  const onPath = (process.env.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => join(dir, 'surge-cli'));
+
+  for (const candidate of [...onPath, ...BUNDLED_SURGE_CLI_PATHS]) {
+    if (await isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+};
+
+const reloadViaCli = async (surgeCli: string) => {
+  await execFileAsync(surgeCli, ['reload'], { timeout: RELOAD_TIMEOUT_MS });
 };
 
 /**
@@ -78,16 +105,18 @@ export const reloadSurgeProfile = async (surgeText: string) => {
     }
   }
 
-  try {
-    await reloadViaCli();
-    return { reloaded: true, via: 'surge-cli' as const };
-  } catch {
-    if (!httpApi) {
-      console.warn(
-        'Could not reload Surge automatically. Reload the profile manually, or enable the HTTP API by adding `http-api = <your-key>@127.0.0.1:6171` to [General].',
-      );
+  const surgeCli = await findSurgeCli();
+  if (surgeCli) {
+    try {
+      await reloadViaCli(surgeCli);
+      return { reloaded: true, via: 'surge-cli' as const };
+    } catch (error) {
+      console.warn(`surge-cli reload failed: ${error instanceof Error ? error.message : error}`);
     }
-
-    return { reloaded: false, via: undefined };
   }
+
+  console.warn(
+    'Could not reload Surge automatically; reload the profile from the Surge menu, or add `http-api = <your-key>@127.0.0.1:6171` to [General].',
+  );
+  return { reloaded: false, via: undefined };
 };

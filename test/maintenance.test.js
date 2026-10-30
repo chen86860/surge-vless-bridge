@@ -5,7 +5,7 @@ const test = require('node:test');
 
 const { cleanManagedArtifacts, runDoctor, syncSubscriptionToSurge } = require('../dist/surge.js');
 const { parseHttpApiSettings } = require('../dist/utils/surge-reload.js');
-const { captureConsole, makeConfig, nodeConfigFiles, readProfile, subscriptionUrl, vlessLink } = require('./helpers.js');
+const { captureConsole, generatedFiles, makeConfig, readProfile, subscriptionUrl, vlessLink } = require('./helpers.js');
 
 test('keeps only the configured number of backups', async () => {
   const { config } = await makeConfig('backup-keep');
@@ -35,24 +35,24 @@ test('dry run reports the plan without writing anything', async () => {
   assert.match(output, /2081\s+A/);
   assert.match(output, /Surge profile would change/);
   assert.equal(await readProfile(config), before);
-  assert.deepEqual(await nodeConfigFiles(config), []);
+  assert.deepEqual(await generatedFiles(config), []);
   assert.deepEqual(
     (await readdir(config.outputDir)).filter((entry) => entry.startsWith('.staging-')),
     [],
   );
 });
 
-test('clean removes the managed block, the policy group and the node configs', async () => {
+test('clean removes the managed block, the policy group and the generated files', async () => {
   const { config } = await makeConfig('clean');
   config.subscriptionUrls = [subscriptionUrl([vlessLink(1, 'A'), vlessLink(2, 'B')])];
   await syncSubscriptionToSurge(config);
-  assert.equal((await nodeConfigFiles(config)).length, 2);
+  assert.deepEqual(await generatedFiles(config), ['launcher.sh', 'sing-box.json']);
 
   const result = await cleanManagedArtifacts(config);
   const profile = await readProfile(config);
 
-  assert.equal(result.removedConfigs, 2);
-  assert.deepEqual(await nodeConfigFiles(config), []);
+  assert.equal(result.removedNodes, 2);
+  assert.deepEqual(await generatedFiles(config), []);
   assert.doesNotMatch(profile, /# vless start/);
   assert.doesNotMatch(profile, /# vless end/);
   assert.doesNotMatch(profile, /^VLESS =/m);
@@ -103,6 +103,7 @@ test('doctor reports the ports in use once nodes exist', async () => {
   const output = await captureConsole('log', () => runDoctor(config));
 
   assert.match(output, /OK ports: 2081/);
+  assert.match(output, /OK sing-box: not running/);
 });
 
 test('parses the Surge HTTP API settings', () => {
@@ -122,11 +123,12 @@ test('returns nothing when the HTTP API is not configured', () => {
   assert.equal(parseHttpApiSettings('[Proxy]\nDIRECT = direct'), undefined);
 });
 
-test('doctor points at the HTTP API when it is not enabled', async () => {
+test('doctor falls back to surge-cli when the HTTP API is not enabled', async () => {
   const { config } = await makeConfig('doctor-api');
   const output = await captureConsole('log', () => runDoctor(config));
 
-  assert.match(output, /WARN surge-http-api: not enabled/);
+  // Which of the two appears depends on whether Surge is installed on the machine running the tests.
+  assert.match(output, /(OK auto-reload: surge-cli \/|WARN auto-reload: unavailable)/);
 });
 
 test('doctor confirms the HTTP API when the profile enables it', async () => {
@@ -136,5 +138,5 @@ test('doctor confirms the HTTP API when the profile enables it', async () => {
 
   const output = await captureConsole('log', () => runDoctor(config));
 
-  assert.match(output, /OK surge-http-api: http:\/\/127\.0\.0\.1:6171/);
+  assert.match(output, /OK auto-reload: http-api http:\/\/127\.0\.0\.1:6171/);
 });

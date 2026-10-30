@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { Resolver, lookup } from 'node:dns/promises';
-import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
+import { chmod, mkdir, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { isIP } from 'node:net';
 import { basename, join, resolve } from 'node:path';
@@ -10,15 +10,22 @@ import { promisify } from 'node:util';
 import { getVlessSubscriptionNodes } from './parse';
 import type { AddressResolverConfig, CliConfig } from './types/cli-config';
 import type { SingBoxVlessOutbound } from './types/sing-box-vless-outbound';
-import { parseTemplate } from './utils/parse-template';
 import { pathExists, readJsonFile, readTextFile, writeBinaryFile, writeTextFile } from './utils/fs';
+import {
+  LAUNCHER_FILE_NAME,
+  LAUNCHER_SCRIPT,
+  SHARED_CONFIG_FILE_NAME,
+  isSharedSingBoxRunning,
+  stopSharedSingBox,
+} from './utils/launcher';
+import { parseTemplate } from './utils/parse-template';
 import { parseVlessNode } from './utils/parse-vless-node';
-import { parseHttpApiSettings, reloadSurgeProfile } from './utils/surge-reload';
+import { findSurgeCli, parseHttpApiSettings, reloadSurgeProfile } from './utils/surge-reload';
 
 const POLICY_REGEX_FILTER = /^((?!Remain|Expired|官网|如需|套餐|去除|剩余|距离|Reset|重置|流量).)+$/;
-const MANAGED_CONFIG_PATTERN = /^sing-box\[\d+\]\.json$/;
-const MANIFEST_FILE_NAME = 'manifest.json';
-const SING_BOX_CHECK_CONCURRENCY = 8;
+// Left behind by releases that ran one sing-box per node; removed by the first sync or clean.
+const LEGACY_CONFIG_PATTERN = /^sing-box\[\d+\]\.json$/;
+const LEGACY_MANIFEST_FILE_NAME = 'manifest.json';
 const SING_BOX_CHECK_TIMEOUT_MS = 15_000;
 const DOH_RECORD_TYPES = {
   A: 1,
@@ -28,46 +35,29 @@ const DOH_RECORD_TYPES = {
 type GeneratedNode = {
   nodeName: string;
   port: number;
-  configPath: string;
   server: string;
 };
 
-type StagedGeneratedNode = GeneratedNode & {
-  stagedConfigPath: string;
-};
-
-type ManagedConfigManifest = {
-  version: 1;
-  files: string[];
-};
-
 type SingBoxConfig = {
+  inbounds?: Array<{
+    tag?: string;
+    listen_port?: number;
+  }>;
   outbounds?: Array<{
     tag?: string;
     server?: string;
   }>;
+  route?: {
+    rules?: Array<{
+      inbound?: string[];
+      outbound?: string;
+    }>;
+  };
 };
 
 const execFileAsync = promisify(execFile);
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-// Bounded so a large subscription does not spawn one sing-box process per node at once.
-const mapWithConcurrency = async <T, R>(items: T[], limit: number, run: (item: T) => Promise<R>) => {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-
-  const worker = async () => {
-    while (cursor < items.length) {
-      const index = cursor;
-      cursor += 1;
-      results[index] = await run(items[index]!);
-    }
-  };
-
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-};
 
 const isSurgeFakeIp = (address: string) => {
   if (isIP(address) !== 4) {
@@ -250,18 +240,21 @@ const resolveAddresses = async (server: string, resolverConfig: AddressResolverC
   return [];
 };
 
+// Every node runs the same launcher, which shares one sing-box between them; see utils/launcher.ts.
 const buildExternalProxyLine = async ({
   nodeName,
   port,
-  configPath,
   server,
-  singBoxBinary,
-  addressResolver,
-}: GeneratedNode & { singBoxBinary: string; addressResolver: AddressResolverConfig }) => {
-  const addresses = await resolveAddresses(server, addressResolver);
+  config,
+}: GeneratedNode & { config: CliConfig }) => {
+  const addresses = await resolveAddresses(server, config.addressResolver);
   const addressArg = addresses.length > 0 ? `, addresses=${addresses[0]}` : '';
-  return `${nodeName} = external, exec=${singBoxBinary}, args=run, args=-c, args=${configPath}, local-port=${port}${addressArg}`;
+  const launcherPath = join(config.outputDir, LAUNCHER_FILE_NAME);
+  return `${nodeName} = external, exec=/bin/sh, args=${launcherPath}, args=${config.singBoxBinary}, local-port=${port}${addressArg}`;
 };
+
+const buildProxyLines = (generated: GeneratedNode[], config: CliConfig) =>
+  Promise.all(generated.map((entry) => buildExternalProxyLine({ ...entry, config })));
 
 const ensureRequiredConfig = (config: CliConfig) => {
   if (getSubscriptionUrls(config).length === 0 && getConfiguredVlessNodes(config).length === 0) {
@@ -309,49 +302,50 @@ const validateSingBoxConfig = async (singBoxBinary: string, configPath: string) 
   }
 };
 
-// The manifest records exactly which files the last sync produced. Without it `rebuild` globs the
-// output directory and resurrects nodes that have since been removed from the subscription.
-const readManagedConfigEntries = async (outputDir: string) => {
-  const manifestPath = join(outputDir, MANIFEST_FILE_NAME);
-  if (await pathExists(manifestPath)) {
-    const manifest = await readJsonFile<ManagedConfigManifest>(manifestPath);
-    if (
-      manifest.version !== 1 ||
-      !Array.isArray(manifest.files) ||
-      manifest.files.some((entry) => !MANAGED_CONFIG_PATTERN.test(entry))
-    ) {
-      throw new Error(`Invalid managed config manifest: ${manifestPath}`);
-    }
+const sharedConfigPath = (outputDir: string) => join(outputDir, SHARED_CONFIG_FILE_NAME);
 
-    return [...new Set(manifest.files)].sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
-  }
+// The shared config is the record of what the last sync produced: each node's port comes from the
+// inbound its route rule pins it to, so `rebuild` reproduces exactly the nodes and ports Surge expects.
+const readSharedConfigNodes = async (outputDir: string) => {
+  const configPath = sharedConfigPath(outputDir);
+  const json = await readJsonFile<SingBoxConfig>(configPath);
+  const inbounds = json.inbounds ?? [];
+  const rules = json.route?.rules ?? [];
 
-  // No manifest yet: fall back to globbing so an install that predates the manifest still rebuilds.
-  return (await readdir(outputDir))
-    .filter((entry) => MANAGED_CONFIG_PATTERN.test(entry))
-    .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }));
+  return (json.outbounds ?? [])
+    .map((outbound) => {
+      const nodeName = outbound.tag
+        ?.replace(/[,\n\r=]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const inboundTag = rules.find((rule) => rule.outbound === outbound.tag)?.inbound?.[0];
+      const port = inbounds.find((inbound) => inbound.tag === inboundTag)?.listen_port;
+
+      if (!nodeName || !outbound.server || typeof port !== 'number') {
+        console.error(`Skipping unusable outbound ${outbound.tag ?? '(untagged)'} in ${configPath}`);
+        return null;
+      }
+
+      return { nodeName, port, server: outbound.server } satisfies GeneratedNode;
+    })
+    .filter((entry): entry is GeneratedNode => Boolean(entry));
 };
 
-const promoteGeneratedConfigs = async (config: CliConfig, generated: StagedGeneratedNode[]) => {
-  for (const entry of generated) {
-    await rename(entry.stagedConfigPath, entry.configPath);
-  }
+const readSharedConfigNodesIfPresent = async (outputDir: string) =>
+  (await pathExists(sharedConfigPath(outputDir))) ? readSharedConfigNodes(outputDir).catch(() => []) : [];
 
-  const manifest: ManagedConfigManifest = {
-    version: 1,
-    files: generated.map((entry) => basename(entry.configPath)),
-  };
-  await writeTextFile(join(config.outputDir, MANIFEST_FILE_NAME), `${JSON.stringify(manifest, null, 2)}\n`);
+const writeLauncher = async (path: string) => {
+  await writeTextFile(path, LAUNCHER_SCRIPT);
+  await chmod(path, 0o755);
 };
 
-const removeStaleConfigs = async (outputDir: string, generated: GeneratedNode[]) => {
-  const expected = new Set(generated.map((entry) => basename(entry.configPath)));
-  const staleFiles = (await readdir(outputDir)).filter(
-    (entry) => MANAGED_CONFIG_PATTERN.test(entry) && !expected.has(entry),
+const removeLegacyConfigs = async (outputDir: string) => {
+  const legacy = (await readdir(outputDir).catch(() => [])).filter(
+    (entry) => LEGACY_CONFIG_PATTERN.test(entry) || entry === LEGACY_MANIFEST_FILE_NAME,
   );
 
-  await Promise.all(staleFiles.map((entry) => rm(join(outputDir, entry), { force: true })));
-  return staleFiles.length;
+  await Promise.all(legacy.map((entry) => rm(join(outputDir, entry), { force: true })));
+  return legacy.filter((entry) => entry !== LEGACY_MANIFEST_FILE_NAME).length;
 };
 
 // Every sync, rebuild and clean writes a backup, so without pruning the directory grows without
@@ -523,52 +517,36 @@ const generateConfigsFromOutbounds = async ({
   stagingDir: string;
 }) => {
   const seenNodeNames = new Map<string, number>();
+  const nodes = outbounds.map((outbound, index) => {
+    const nodeName = ensureUniquePolicyName(sanitizePolicyName(outbound.tag, index), seenNodeNames);
+    return { outbound: { ...outbound, tag: nodeName }, port: config.portStart + index };
+  });
 
-  const generated = await Promise.all(
-    outbounds.map(async (outbound, index) => {
-      const port = config.portStart + index;
-      const nodeName = ensureUniquePolicyName(sanitizePolicyName(outbound.tag, index), seenNodeNames);
-      const fileName = `sing-box[${port}].json`;
-      const stagedConfigPath = join(stagingDir, fileName);
-      const serverConfig = parseTemplate({
-        node: {
-          ...outbound,
-          tag: nodeName,
-        },
-        port,
-      });
+  const stagedConfigPath = join(stagingDir, SHARED_CONFIG_FILE_NAME);
+  await writeTextFile(stagedConfigPath, `${JSON.stringify(parseTemplate(nodes), null, 2)}\n`);
+  await writeLauncher(join(stagingDir, LAUNCHER_FILE_NAME));
 
-      await writeTextFile(stagedConfigPath, `${JSON.stringify(serverConfig, null, 2)}\n`);
+  // Checked here, before Surge is touched: with every node in one process, a config sing-box rejects
+  // would take all nodes down at once rather than one.
+  await validateSingBoxConfig(config.singBoxBinary, stagedConfigPath);
 
-      return {
-        nodeName,
-        port,
-        configPath: join(config.outputDir, fileName),
-        stagedConfigPath,
-        server: outbound.server,
-      } satisfies StagedGeneratedNode;
-    }),
-  );
-
-  await mapWithConcurrency(generated, SING_BOX_CHECK_CONCURRENCY, (entry) =>
-    validateSingBoxConfig(config.singBoxBinary, entry.stagedConfigPath),
-  );
-
-  const proxyLines = await Promise.all(
-    generated.map((entry) =>
-      buildExternalProxyLine({
-        ...entry,
-        singBoxBinary: config.singBoxBinary,
-        addressResolver: config.addressResolver,
-      }),
-    ),
+  const generated = nodes.map(
+    ({ outbound, port }) => ({ nodeName: outbound.tag, port, server: outbound.server }) satisfies GeneratedNode,
   );
 
   return {
     generated,
-    proxyLines,
+    proxyLines: await buildProxyLines(generated, config),
     nodeNames: generated.map((entry) => entry.nodeName),
   };
+};
+
+// Both files are renamed into place, so a launcher Surge starts mid-sync sees either the old config
+// or the new one, never a partial write.
+const promoteGeneratedConfigs = async (config: CliConfig, stagingDir: string) => {
+  for (const name of [LAUNCHER_FILE_NAME, SHARED_CONFIG_FILE_NAME]) {
+    await rename(join(stagingDir, name), join(config.outputDir, name));
+  }
 };
 
 const reportDryRun = async ({
@@ -576,7 +554,7 @@ const reportDryRun = async ({
   generated,
 }: {
   config: CliConfig;
-  generated: { generated: StagedGeneratedNode[]; proxyLines: string[]; nodeNames: string[] };
+  generated: { generated: GeneratedNode[]; proxyLines: string[]; nodeNames: string[] };
 }) => {
   const { source, updated } = await buildSurgeProfile({
     config,
@@ -589,14 +567,12 @@ const reportDryRun = async ({
     console.log(`  ${String(entry.port).padEnd(6)} ${entry.nodeName}`);
   }
 
-  const existing = new Set(
-    (await readdir(config.outputDir).catch(() => [])).filter((entry) => MANAGED_CONFIG_PATTERN.test(entry)),
-  );
-  const expected = new Set(generated.generated.map((entry) => basename(entry.configPath)));
+  const existing = new Set((await readSharedConfigNodesIfPresent(config.outputDir)).map((entry) => entry.nodeName));
+  const expected = new Set(generated.nodeNames);
   const added = [...expected].filter((entry) => !existing.has(entry)).length;
   const removed = [...existing].filter((entry) => !expected.has(entry)).length;
 
-  console.log(`Node configs: +${added} / -${removed} in ${config.outputDir}`);
+  console.log(`Nodes: +${added} / -${removed} in ${sharedConfigPath(config.outputDir)}`);
   console.log(
     updated === source
       ? `Surge profile unchanged: ${config.surgeConfigPath}`
@@ -625,16 +601,18 @@ export const cleanManagedArtifacts = async (config: CliConfig) => {
 
   await writeTextFile(config.surgeConfigPath, withoutGroup);
 
-  const entries = (await readdir(config.outputDir).catch(() => [])).filter(
-    (entry) => MANAGED_CONFIG_PATTERN.test(entry) || entry === MANIFEST_FILE_NAME,
+  const nodeCount = (await readSharedConfigNodesIfPresent(config.outputDir)).length;
+  await stopSharedSingBox(config.outputDir);
+  await Promise.all(
+    [SHARED_CONFIG_FILE_NAME, LAUNCHER_FILE_NAME].map((name) => rm(join(config.outputDir, name), { force: true })),
   );
-  await Promise.all(entries.map((entry) => rm(join(config.outputDir, entry), { force: true })));
+  const legacyCount = await removeLegacyConfigs(config.outputDir);
 
   await maybeReloadSurge(config, withoutGroup);
 
   return {
     backupPath,
-    removedConfigs: entries.filter((entry) => entry !== MANIFEST_FILE_NAME).length,
+    removedNodes: nodeCount + legacyCount,
   };
 };
 
@@ -694,16 +672,18 @@ export const syncSubscriptionToSurge = async (config: CliConfig, { dryRun = fals
 
     const backupPath = await backupSurgeProfile(config);
 
-    await promoteGeneratedConfigs(config, generated.generated);
+    await promoteGeneratedConfigs(config, stagingDir);
     const surgeText = await writeSurgeProfile({
       config,
       proxyLines: generated.proxyLines,
       nodeNames: generated.nodeNames,
     });
 
-    const removedCount = await removeStaleConfigs(config.outputDir, generated.generated);
-    if (removedCount > 0) {
-      console.log(`Removed ${removedCount} node config${removedCount === 1 ? '' : 's'} no longer in the subscription.`);
+    const legacyCount = await removeLegacyConfigs(config.outputDir);
+    if (legacyCount > 0) {
+      console.log(
+        `Replaced ${legacyCount} per-node sing-box config${legacyCount === 1 ? '' : 's'} with the shared ${SHARED_CONFIG_FILE_NAME}.`,
+      );
     }
 
     await maybeReloadSurge(config, surgeText);
@@ -725,69 +705,36 @@ export const rebuildSurgeFromLocalConfigs = async (config: CliConfig) => {
     );
   }
 
-  const entries = await readManagedConfigEntries(config.outputDir);
-  if (entries.length === 0) {
-    throw new Error(`No sing-box configs found in ${config.outputDir}`);
+  if (!(await pathExists(sharedConfigPath(config.outputDir)))) {
+    const hasLegacy = (await readdir(config.outputDir).catch(() => [])).some((entry) => LEGACY_CONFIG_PATTERN.test(entry));
+    throw new Error(
+      hasLegacy
+        ? `Found per-node configs from an older release in ${config.outputDir}; run \`sync\` once to switch to the shared ${SHARED_CONFIG_FILE_NAME}.`
+        : `No ${SHARED_CONFIG_FILE_NAME} found in ${config.outputDir}; run \`sync\` first.`,
+    );
   }
 
-  const generated = await Promise.all(
-    entries.map(async (entry) => {
-      const match = entry.match(/sing-box\[(\d+)\]\.json$/);
-      if (!match) {
-        return null;
-      }
-
-      const port = Number(match[1]);
-      const configPath = join(config.outputDir, entry);
-      const json = await readJsonFile<SingBoxConfig>(configPath);
-      const outbound = json.outbounds?.[0];
-      const rawTag = outbound?.tag;
-      const nodeName = rawTag
-        ?.replace(/[,\n\r=]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      if (!nodeName || !outbound?.server) {
-        console.error(`Skipping unusable config: ${configPath}`);
-        return null;
-      }
-
-      return {
-        nodeName,
-        port,
-        configPath,
-        server: outbound.server,
-      } satisfies GeneratedNode;
-    }),
-  );
-
-  const validEntries = generated.filter((entry): entry is GeneratedNode => Boolean(entry));
-  if (validEntries.length === 0) {
-    throw new Error(`No usable sing-box configs found in ${config.outputDir}`);
+  const generated = await readSharedConfigNodes(config.outputDir);
+  if (generated.length === 0) {
+    throw new Error(`No usable nodes found in ${sharedConfigPath(config.outputDir)}`);
   }
 
-  const proxyLines = await Promise.all(
-    validEntries.map((entry) =>
-      buildExternalProxyLine({
-        ...entry,
-        singBoxBinary: config.singBoxBinary,
-        addressResolver: config.addressResolver,
-      }),
-    ),
-  );
+  // Rewritten so the Surge block never points at a launcher missing from disk or left by an older release.
+  await writeLauncher(join(config.outputDir, LAUNCHER_FILE_NAME));
+  const proxyLines = await buildProxyLines(generated, config);
 
   const backupPath = await backupSurgeProfile(config);
   const surgeText = await writeSurgeProfile({
     config,
     proxyLines,
-    nodeNames: validEntries.map((entry) => entry.nodeName),
+    nodeNames: generated.map((entry) => entry.nodeName),
   });
 
   await maybeReloadSurge(config, surgeText);
 
   return {
     backupPath,
-    count: validEntries.length,
+    count: generated.length,
   };
 };
 
@@ -829,8 +776,8 @@ type DoctorCheck = {
   detail: string;
 };
 
-// Ports are probed by binding them: Surge starts one sing-box per node on portStart+N, and a port
-// already taken by something else makes that node fail with no obvious cause.
+// Ports are probed by binding them: the shared sing-box listens on portStart+N for every node, and a
+// port already taken by something else makes that node fail with no obvious cause.
 const findPortConflicts = async (portStart: number, count: number) => {
   const conflicts: number[] = [];
 
@@ -901,28 +848,42 @@ export const runDoctor = async (config: CliConfig) => {
       detail: '[Proxy]',
     });
 
+    // Mirrors the order reloadSurgeProfile tries: the HTTP API first, then surge-cli.
     const httpApi = parseHttpApiSettings(text);
+    const surgeCli = httpApi ? undefined : await findSurgeCli();
     checks.push({
-      label: 'surge-http-api',
-      level: httpApi ? 'ok' : 'warn',
+      label: 'auto-reload',
+      level: httpApi || surgeCli ? 'ok' : 'warn',
       detail: httpApi
-        ? `${httpApi.origin} (profile reloads automatically)`
-        : 'not enabled; add `http-api = <key>@127.0.0.1:6171` to [General] to reload automatically',
+        ? `http-api ${httpApi.origin}`
+        : surgeCli
+          ? `surge-cli ${surgeCli}`
+          : 'unavailable; add `http-api = <key>@127.0.0.1:6171` to [General] to reload automatically',
     });
   }
 
-  const managedEntries = (await pathExists(config.outputDir))
-    ? await readManagedConfigEntries(config.outputDir).catch(() => [])
-    : [];
-  if (managedEntries.length > 0) {
-    const conflicts = await findPortConflicts(config.portStart, managedEntries.length);
-    // Surge keeps the managed nodes listening, so their own ports read as busy while it is running.
+  const nodes = await readSharedConfigNodesIfPresent(config.outputDir);
+  if (nodes.length > 0) {
+    const running = await isSharedSingBoxRunning(config.outputDir);
+    const conflicts = await findPortConflicts(config.portStart, nodes.length);
+    // The shared sing-box keeps every node's port bound, so they read as busy while it is running.
     checks.push({
       label: 'ports',
-      level: 'ok',
-      detail: `${config.portStart}-${config.portStart + managedEntries.length - 1}${
-        conflicts.length > 0 ? `, ${conflicts.length} in use (expected while Surge is running)` : ''
+      level: conflicts.length > 0 && !running ? 'warn' : 'ok',
+      detail: `${config.portStart}-${config.portStart + nodes.length - 1}${
+        conflicts.length === 0
+          ? ''
+          : running
+            ? `, ${conflicts.length} in use by the shared sing-box`
+            : `, ${conflicts.length} in use by another program`
       }`,
+    });
+    checks.push({
+      label: 'sing-box',
+      level: 'ok',
+      detail: running
+        ? `one shared process serving ${nodes.length} nodes`
+        : 'not running; Surge starts it when a node is first used',
     });
   }
 
