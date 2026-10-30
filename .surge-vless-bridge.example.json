@@ -1,7 +1,7 @@
 {
   "subscriptionUrls": [
     "https://example.com/subscription-a",
-    "https://example.com/subscription-b"
+    { "url": "https://example.com/subscription-b", "prefix": "B | ", "group": "Provider B" }
   ],
   "vlessNodes": [
     "vless://uuid@example.com:443?type=tcp&security=reality&pbk=public-key&sid=short-id&fp=chrome&sni=example.com&flow=xtls-rprx-vision#Example"

@@ -158,7 +158,7 @@ test('writes one sing-box config with an inbound and a route rule per node', asy
 
   await syncSubscriptionToSurge(config);
 
-  assert.deepEqual(await generatedFiles(config), ['launcher.sh', 'sing-box.json']);
+  assert.deepEqual(await generatedFiles(config), ['groups.json', 'launcher.sh', 'sing-box.json']);
   const shared = await readSharedConfig(config);
   assert.deepEqual(
     shared.inbounds.map(({ tag, listen, listen_port }) => ({ tag, listen, listen_port })),
@@ -201,7 +201,7 @@ test('replaces per-node configs left by an older release', async () => {
   const output = await captureConsole('log', () => syncSubscriptionToSurge(config));
 
   assert.match(output, /Replaced 2 per-node sing-box configs/);
-  assert.deepEqual(await generatedFiles(config), ['launcher.sh', 'sing-box.json']);
+  assert.deepEqual(await generatedFiles(config), ['groups.json', 'launcher.sh', 'sing-box.json']);
 });
 
 test('leaves no staging directory behind', async () => {

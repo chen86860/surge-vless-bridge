@@ -48,9 +48,8 @@ npm i -g surge-vless-bridge
 #    (see "Where the config file lands" below)
 surge-vless-bridge init --no-input --subscription-url "$URL" --surge-config "$PROFILE"
 
-# 4. Check the file: subscriptionUrls and surgeConfigPath must both be filled in, then make it
-#    readable by the user only — it holds the subscription credential
-chmod 600 ~/.config/surge-vless-bridge/config.json
+# 4. Check the file: subscriptionUrls and surgeConfigPath must both be filled in. init creates it
+#    readable by the user only; doctor reports `WARN configFile` if an older one is not
 
 # 5. Preview — writes nothing
 surge-vless-bridge sync --dry-run
@@ -107,18 +106,14 @@ Never include the subscription URL, node UUIDs, or the contents of `vless_nodes.
 `init` and every later command resolve the config path in this order:
 
 1. `--config <path>`, if given.
-2. `<git root>/.surge-vless-bridge.json` — **if the current directory is inside a git repository**.
+2. `<git root>/.surge-vless-bridge.json` — only if the current directory is inside a git repository
+   **and that file already exists**.
 3. `~/.config/surge-vless-bridge/config.json`.
 
-Rule 2 is the trap. If you run `init` from inside any git repo, the config — including the user's
-subscription URL — is written into that repo and can be committed. Unless the user explicitly wants a
-per-project config, run from outside a repo, or pin the path:
-
-```bash
-surge-vless-bridge init --config ~/.config/surge-vless-bridge/config.json
-```
-
-If a project-local config is intended, add `.surge-vless-bridge.json` to `.gitignore` first.
+So running from inside an unrelated repo is safe: `init` writes the global config, and every command
+reads it. The command output always prints the path it used; read it from there rather than assuming.
+If the user explicitly wants a per-project config, pass `--config` and add the file to `.gitignore`
+first — it holds the subscription URL.
 
 ## Filling the config
 
@@ -134,6 +129,16 @@ Minimum viable file:
 `init` writes `"subscriptionUrls": [""]` — replace the empty string, don't append to it. Multiple URLs
 are merged into one policy group. `vlessNodes` accepts raw `vless://` links for users without a
 subscription. All other keys are optional; see [Config File](../README.en.md#config-file).
+
+Only when the user asks for it:
+
+- **Separate groups or name prefixes per provider** — write that entry as an object:
+  `{ "url": "…", "prefix": "B | ", "group": "Provider B" }`. Unknown fields are rejected, and `group`
+  must not collide with a group the user already has, since it would be overwritten. See
+  [Per-subscription prefixes and policy groups](../README.en.md#per-subscription-prefixes-and-policy-groups).
+- **A subscription that fails with 403 or a timeout** but opens in the user's browser — set
+  `"subscriptionProxy": "http://127.0.0.1:6152"` (Surge's HTTP proxy port; confirm it with the user)
+  so the fetch is retried through Surge.
 
 Any config key can be overridden per-run by a flag (`--subscription-url`, `--surge-config`,
 `--group-name`, `--port-start`, …). Prefer editing the config file for anything permanent — flags
@@ -177,6 +182,7 @@ Each line is `OK` / `WARN` / `FAIL` plus a label.
 | Line | Meaning | Fix |
 | --- | --- | --- |
 | `FAIL nodeSources` | No subscription URL and no direct node | Fill `subscriptionUrls` |
+| `WARN configFile` | The config, which holds the subscription URL, is readable by other users | `chmod 600 <path>` (safe to run; it changes nothing else) |
 | `FAIL surgeConfigPath` | Profile path empty or missing | Ask the user for the real path (Surge menu bar → Switch Profile → Show in Finder) |
 | `FAIL singBoxBinary` | `sing-box` not found | `brew install sing-box`, or set `singBoxBinary` |
 | `FAIL proxy-section` / `proxy-group-section` | Profile lacks `[Proxy]` / `[Proxy Group]` | The user must add the section; the tool will not create it |
@@ -199,6 +205,10 @@ Each line is `OK` / `WARN` / `FAIL` plus a label.
 | `No sing-box.json found …` | `rebuild` before any `sync` | Run `sync` instead |
 | `Surge profile not found: <path>` | Bad `surgeConfigPath` | Ask the user to re-copy the path |
 | `Unknown flag: --x` | Typo | Flags are rejected, not ignored — check `help` |
+| `subscriptionUrls[N] has unknown field: …` / `… cannot contain commas …` | Malformed object entry | Fix that entry; only `url`, `prefix` and `group` exist |
+| `Failed to fetch subscription …: 403 …` | Provider rejected the request | Ask whether the URL opens in a browser; if it does, suggest `subscriptionProxy` |
+| `… retry through http://… failed: …` | The proxy retry failed too | Check that Surge is running and the port is its HTTP proxy port |
+| `Skipped N subscription info entries: …` (warning) | Traffic/expiry notices in the subscription were dropped | Nothing to do, but mention it if a real node's name appears in the list |
 
 ## Safety rules
 

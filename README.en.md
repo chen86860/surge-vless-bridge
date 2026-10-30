@@ -132,10 +132,19 @@ whole config with `sing-box check` before touching Surge — one broken node can
 - Generated configs are checked with `sing-box check`, which validates the config against _your_
   installed sing-box: it catches unknown or unsupported options and invalid keys, but it does not test
   whether a node actually connects.
+- Every file is written to a temporary file and renamed into place, so an interrupted write never
+  leaves a truncated Surge profile. A symlinked profile (in iCloud, say) is updated through the link.
+- Files this tool creates — config, node files, backups — are mode `600` in `700` directories, so other
+  users on the Mac cannot read subscription URLs or node UUIDs. The Surge profile keeps its own mode.
+  `doctor` warns when an older config file is still readable by others.
 
 ## Config File
 
 Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
+
+Inside a git repository, `<repo root>/.surge-vless-bridge.json` is used only if it **already exists**;
+otherwise the global config above is, so `sync` works from any project directory. `--config <path>`
+points at any other file.
 
 ```json
 {
@@ -168,8 +177,71 @@ Created by `init`. Default path: `~/.config/surge-vless-bridge/config.json`.
 adding a second provider never drops the original one. At least one of `subscriptionUrl`,
 `subscriptionUrls`, or `vlessNodes` must be configured.
 
-Nodes from every source share one policy group. Duplicate names get a numeric suffix (`HK 01 2`), and a
-subscription that returns no VLESS nodes is reported as a warning rather than failing the sync.
+By default nodes from every source share one policy group. Duplicate names get a numeric suffix
+(`HK 01 2`), and a subscription that returns no VLESS nodes is reported as a warning rather than
+failing the sync.
+
+### Per-subscription prefixes and policy groups
+
+Each `subscriptionUrls` entry is either a URL string or an object with options; the two forms mix:
+
+```json
+{
+  "subscriptionUrls": [
+    "https://example.com/subscription-a",
+    { "url": "https://example.com/subscription-b", "prefix": "B | " },
+    { "url": "https://example.com/subscription-c", "prefix": "C | ", "group": "Provider C" }
+  ]
+}
+```
+
+| Option   | Description                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------- |
+| `url`    | The subscription URL. Required                                                               |
+| `prefix` | Prepended verbatim to every node name from it (`B \| HK 01`); tells same-named nodes apart    |
+| `group`  | Puts its nodes in their own url-test policy group instead of `policyGroupName`               |
+
+The example above produces two groups:
+
+```ini
+VLESS = url-test, HK 01, …, B | HK 01, …, no-alert=0, hidden=0
+Provider C = url-test, C | HK 01, …, no-alert=0, hidden=0
+```
+
+- Subscriptions without a `group`, and `vlessNodes`, go to `policyGroupName`.
+- When every subscription has a `group`, `policyGroupName` is still written, as
+  `VLESS = select, <each group>`, so rules that reference `VLESS` keep working — Surge
+  refuses to load a profile whose rules name a missing policy.
+- Removing a `group` from the config removes that policy group on the next `sync`; `clean` removes
+  every group this tool wrote.
+- Do not reuse the name of one of your own groups: it would be overwritten. Neither `prefix` nor
+  `group` may contain commas, `=` or line breaks, and a mistyped field (say `grop`) is an error rather
+  than being silently ignored.
+
+### Traffic and expiry entries
+
+Many providers list notices such as traffic left, expiry date or reset countdown as fake nodes. Entries
+whose name contains `Remain`, `Expired`, `Reset`, `官网`, `如需`, `套餐`, `去除`, `剩余`, `距离`, `重置` or `流量`
+are not turned into nodes and take no local port; `sync` lists the names it skipped.
+
+> A real node whose name happens to contain one of these words is skipped too — check the list `sync`
+> prints.
+
+### Fetching a subscription through a proxy
+
+Some subscription URLs are only reachable through a proxy, or reject Node.js's TLS fingerprint. With
+`subscriptionProxy` set, a failed direct fetch is retried once with `curl` through that proxy:
+
+```json
+{
+  "subscriptionProxy": "http://127.0.0.1:6152"
+}
+```
+
+`6152` is Surge's default HTTP proxy port; check it under Surge's proxy settings. The proxy URL may
+carry credentials (`http://user:pass@host:port`); output only ever shows `http://host:port`. A
+successful direct fetch never touches the proxy, and when both attempts fail the error lists both
+reasons. Requires `curl`, which macOS ships with.
 
 **Optional**
 
@@ -182,6 +254,7 @@ subscription that returns no VLESS nodes is reported as a warning rather than fa
 | `backupDir`       | `~/.config/surge-vless-bridge/backups` | Where Surge profile backups are stored                 |
 | `backupKeep`      | `20`                                   | How many backups to keep; older ones are pruned        |
 | `autoReload`      | `true`                                 | Ask Surge to reload the profile after it changes       |
+| `subscriptionProxy` | none                                 | Proxy a failed subscription fetch is retried through   |
 | `addressResolver` | see below                              | How to resolve proxy server domains for `addresses=`   |
 
 `addressResolver.strategy` can be:
@@ -270,7 +343,8 @@ cd surge-vless-bridge
 npm install
 ```
 
-Config file defaults to `.surge-vless-bridge.json` in the current directory, not the global path.
+A `.surge-vless-bridge.json` at the repo root takes precedence over the global config. Create one with
+`npm run init -- --config .surge-vless-bridge.json`; it is already in `.gitignore`.
 
 Run commands directly via `tsx` without building:
 

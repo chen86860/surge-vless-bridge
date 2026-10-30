@@ -3,7 +3,7 @@ import { readdir, stat } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 
-import type { AddressResolverConfig, CliConfig, CliConfigInput } from './types/cli-config';
+import type { AddressResolverConfig, CliConfig, CliConfigInput, SubscriptionEntry } from './types/cli-config';
 import { pathExists, readJsonFile, writeTextFile } from './utils/fs';
 
 export const CONFIG_FILE_NAME = '.surge-vless-bridge.json';
@@ -144,6 +144,59 @@ const resolveDefaultConfigPath = (cwd: string) => {
   return resolve(cwd, CONFIG_FILE_NAME);
 };
 
+const SUBSCRIPTION_ENTRY_KEYS = new Set(['url', 'prefix', 'group']);
+
+// Rejected rather than skipped, for the same reason unknown CLI flags are: a mistyped `grop` that is
+// silently ignored looks like it worked and quietly merges that subscription into the default group.
+const normalizeSubscriptionEntry = (entry: unknown, index: number): SubscriptionEntry | undefined => {
+  const where = `subscriptionUrls[${index}]`;
+
+  if (typeof entry === 'string') {
+    return entry.trim() === '' ? undefined : entry;
+  }
+
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    throw new Error(`${where} must be a URL string or an object with a "url" field.`);
+  }
+
+  const unknownKeys = Object.keys(entry).filter((key) => !SUBSCRIPTION_ENTRY_KEYS.has(key));
+  if (unknownKeys.length > 0) {
+    throw new Error(`${where} has unknown field${unknownKeys.length === 1 ? '' : 's'}: ${unknownKeys.join(', ')}`);
+  }
+
+  const { url, prefix, group } = entry as Record<string, unknown>;
+  if (typeof url !== 'string' || url.trim() === '') {
+    throw new Error(`${where} is missing its "url".`);
+  }
+
+  const options: { prefix?: string; group?: string } = {};
+  for (const [key, value] of [
+    ['prefix', prefix],
+    ['group', group],
+  ] as const) {
+    if (value === undefined) {
+      continue;
+    }
+
+    if (typeof value !== 'string') {
+      throw new Error(`${where}.${key} must be a string.`);
+    }
+
+    // Both end up in Surge `[Proxy]` / `[Proxy Group]` lines, where these characters split the entry.
+    if (/[,=\r\n]/.test(value)) {
+      throw new Error(`${where}.${key} cannot contain commas, "=" or line breaks: ${value}`);
+    }
+
+    // A prefix keeps its spacing ("HK | " reads as intended); a group name is an identifier.
+    const normalized = key === 'group' ? value.trim() : value;
+    if (normalized) {
+      options[key] = normalized;
+    }
+  }
+
+  return { url, ...options };
+};
+
 const mergeConfig = (base: CliConfig, input?: CliConfigInput): CliConfig => {
   if (!input) {
     return base;
@@ -153,7 +206,9 @@ const mergeConfig = (base: CliConfig, input?: CliConfigInput): CliConfig => {
   const sanitizedInput = Object.fromEntries(definedEntries) as CliConfigInput;
   const hasSubscriptionUrls = Array.isArray(sanitizedInput.subscriptionUrls);
   const normalizedSubscriptionUrls = hasSubscriptionUrls
-    ? sanitizedInput.subscriptionUrls?.filter((url) => typeof url === 'string' && url.trim() !== '')
+    ? sanitizedInput.subscriptionUrls
+        ?.map(normalizeSubscriptionEntry)
+        .filter((entry): entry is SubscriptionEntry => entry !== undefined)
     : undefined;
   const hasVlessNodes = Array.isArray(sanitizedInput.vlessNodes);
   const normalizedVlessNodes = hasVlessNodes

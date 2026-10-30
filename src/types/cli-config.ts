@@ -7,9 +7,16 @@ export type AddressResolverConfig = {
   filterSurgeFakeIp: boolean;
 };
 
+// A bare URL, or a URL with per-subscription options: `prefix` is prepended to every node name from
+// it, and `group` puts its nodes in their own Surge policy group instead of `policyGroupName`.
+export type SubscriptionEntry = string | { url: string; prefix?: string; group?: string };
+
 export type CliConfig = {
   subscriptionUrl?: string;
-  subscriptionUrls?: string[];
+  subscriptionUrls?: SubscriptionEntry[];
+  // Proxy that a failed subscription fetch is retried through with curl, e.g. Surge's own
+  // `http://127.0.0.1:6152`.
+  subscriptionProxy?: string;
   vlessNodes?: string[];
   surgeConfigPath: string;
   singBoxBinary: string;

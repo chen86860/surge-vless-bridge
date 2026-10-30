@@ -121,10 +121,17 @@ Surge 的每个 `external` 节点都会启动一个进程，而 url-test 策略�
 - 所有来源都没有解析出 VLESS 节点时，`sync` 拒绝改写配置，避免某个机场过期导致策略组被清空。
 - 生成的配置会经过 `sing-box check`，用的是**你本机安装的** sing-box：能查出不支持的选项和非法密钥，但
   **不能验证节点是否真的连得通**。
+- 所有文件都先写入临时文件再改名替换，写到一半中断也不会留下残缺的 Surge 配置；符号链接形式的 Surge 配置
+  （例如放在 iCloud 里）会更新链接指向的文件，链接本身不变。
+- 本工具生成的文件（配置、节点、备份）权限都是 `600`，目录是 `700`，同一台 Mac 上的其他用户读不到订阅地址
+  和节点 UUID。Surge 配置文件保留原来的权限。旧版本生成的配置文件如果对其他用户可读，`doctor` 会给出提示。
 
 ## 配置文件
 
 由 `init` 创建，默认路径：`~/.config/surge-vless-bridge/config.json`。
+
+在 git 仓库里运行时，只有仓库根目录**已经存在** `.surge-vless-bridge.json` 才会使用它，否则仍然使用上面的全局
+配置，所以在任何项目目录里都可以直接运行 `sync`。`--config <path>` 可以指定其他配置文件。
 
 ```json
 {
@@ -156,8 +163,65 @@ Surge 的每个 `external` 节点都会启动一个进程，而 url-test 策略�
 `subscriptionUrl` 排在最前 —— 新增第二个机场不会导致原订阅丢失。`subscriptionUrl`、`subscriptionUrls`、
 `vlessNodes` 至少需要配置其中一种节点来源。
 
-所有来源的节点会合并进同一个策略组。重名节点自动追加序号（`HK 01 2`）；某个订阅没有解析出 VLESS 节点时
+所有来源的节点默认合并进同一个策略组。重名节点自动追加序号（`HK 01 2`）；某个订阅没有解析出 VLESS 节点时
 只告警，不会中断整次同步。
+
+### 按订阅加前缀、分策略组
+
+`subscriptionUrls` 里的每一项既可以是地址字符串，也可以是带选项的对象，两种写法可以混用：
+
+```json
+{
+  "subscriptionUrls": [
+    "https://example.com/subscription-a",
+    { "url": "https://example.com/subscription-b", "prefix": "机场B | " },
+    { "url": "https://example.com/subscription-c", "prefix": "机场C | ", "group": "机场C" }
+  ]
+}
+```
+
+| 选项     | 说明                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------- |
+| `url`    | 订阅地址，必填                                                                           |
+| `prefix` | 加在该订阅每个节点名前面，原样拼接（`机场B \| HK 01`），可以用来区分不同机场的同名节点   |
+| `group`  | 把该订阅的节点写进单独的 url-test 策略组，而不是 `policyGroupName`                       |
+
+上面的例子会生成两个策略组：
+
+```ini
+VLESS = url-test, HK 01, …, 机场B | HK 01, …, no-alert=0, hidden=0
+机场C = url-test, 机场C | HK 01, …, no-alert=0, hidden=0
+```
+
+- 没写 `group` 的订阅和 `vlessNodes` 里的节点都进 `policyGroupName`。
+- 如果所有订阅都写了 `group`，`policyGroupName` 仍会保留，变成 `VLESS = select, <各个 group>`，规则里原来
+  引用 `VLESS` 的地方不用改；Surge 在规则引用的策略不存在时会拒绝加载配置。
+- 从配置里删掉某个 `group` 后，下次 `sync` 会把对应的策略组一并删掉；`clean` 会删除本工具写过的所有策略组。
+- `group` 不要和你已有的策略组重名，否则会被覆盖。`prefix`、`group` 都不能包含逗号、`=` 或换行，写错字段名
+  （例如 `grop`）会直接报错，不会被悄悄忽略。
+
+### 订阅里的流量、到期信息
+
+很多机场会把「剩余流量」「套餐到期」「距离重置」之类的提示伪装成节点放进订阅。名称里含有 `Remain`、`Expired`、
+`Reset`、`官网`、`如需`、`套餐`、`去除`、`剩余`、`距离`、`重置`、`流量` 的条目不会生成节点，也不占用本地端口，
+`sync` 会列出被跳过的条目名。
+
+> 正常节点名里如果恰好带这些词（例如「香港 01 流量倍率 0.5」）也会被跳过，留意 `sync` 输出的跳过列表。
+
+### 订阅拉取失败时走代理
+
+部分机场的订阅地址只能通过代理访问，或者会拒绝 Node.js 的 TLS 指纹。配置 `subscriptionProxy` 后，直连拉取失败
+时会用 `curl` 通过该代理再试一次：
+
+```json
+{
+  "subscriptionProxy": "http://127.0.0.1:6152"
+}
+```
+
+`6152` 是 Surge 默认的 HTTP 代理端口，可在 Surge 的「设置 → 代理服务」里查看。代理地址可以带账号密码
+（`http://user:pass@host:port`），输出中只会显示 `http://host:port`。直连成功时不会使用代理；两次都失败时，
+报错会同时列出两次的原因。需要系统里有 `curl`，macOS 自带。
 
 **选填**
 
@@ -170,6 +234,7 @@ Surge 的每个 `external` 节点都会启动一个进程，而 url-test 策略�
 | `backupDir`       | `~/.config/surge-vless-bridge/backups` | Surge 配置备份目录                   |
 | `backupKeep`      | `20`                                   | 保留的备份数量，超出的旧备份自动清理 |
 | `autoReload`      | `true`                                 | 配置变更后自动让 Surge 重载          |
+| `subscriptionProxy` | 无                                   | 直连拉取订阅失败时改走的代理，见上文 |
 | `addressResolver` | 见下方                                 | 为 `addresses=` 解析代理服务器域名   |
 
 `addressResolver.strategy` 可选：
@@ -255,7 +320,8 @@ cd surge-vless-bridge
 npm install
 ```
 
-配置文件默认写入当前目录的 `.surge-vless-bridge.json`，而非全局路径。
+仓库根目录已有 `.surge-vless-bridge.json` 时会优先使用它，而非全局配置；没有的话用
+`npm run init -- --config .surge-vless-bridge.json` 创建（该文件已在 `.gitignore` 中）。
 
 通过 `tsx` 直接运行源码，无需编译：
 

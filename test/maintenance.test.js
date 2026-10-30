@@ -46,7 +46,7 @@ test('clean removes the managed block, the policy group and the generated files'
   const { config } = await makeConfig('clean');
   config.subscriptionUrls = [subscriptionUrl([vlessLink(1, 'A'), vlessLink(2, 'B')])];
   await syncSubscriptionToSurge(config);
-  assert.deepEqual(await generatedFiles(config), ['launcher.sh', 'sing-box.json']);
+  assert.deepEqual(await generatedFiles(config), ['groups.json', 'launcher.sh', 'sing-box.json']);
 
   const result = await cleanManagedArtifacts(config);
   const profile = await readProfile(config);

@@ -5,6 +5,40 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [未发布]
+
+### 新增
+
+- `subscriptionUrls` 的每一项可以写成对象：`{ "url": "…", "prefix": "B | ", "group": "机场B" }`。`prefix`
+  会加在该订阅每个节点名前面；`group` 把该订阅的节点写进单独的 url-test 策略组。所有订阅都设置了 group 时，
+  `policyGroupName` 会保留为这些组的 `select`，引用它的规则仍能正常加载。从配置里删掉的组会在下次 `sync`
+  时一并删除，`clean` 会删除全部。未知字段、以及含 `,`、`=`、换行的名称会直接报错。Bingmang、zeroskylian、
+  lanzhihong6 三个分支各自提出过这一需求。
+- `subscriptionProxy`：直连拉取订阅失败时，用 `curl` 通过该代理重试一次，适用于只能通过代理访问、或拒绝
+  Node.js TLS 指纹的订阅。代理地址里的账号密码不会出现在任何输出中。来自 SKYhuangjing 分支。
+- 配置文件对其他用户可读时，`doctor` 会给出提示。
+
+### 变更
+
+- 订阅中的信息条目（剩余流量、到期时间、距离重置等）不再生成节点。此前它们会被改名成 `node3` 之类留在
+  策略组里，永远连不通；现在 `sync` 会列出被跳过的条目。来自 SKYhuangjing 分支。
+- 在 git 仓库内运行时，只有仓库根目录已存在 `.surge-vless-bridge.json` 才会使用它，否则使用全局的
+  `~/.config/surge-vless-bridge/config.json`。此前在任意无关仓库里运行命令都会报 `Config file not found`，
+  在那里执行 `init` 还会把订阅地址写进该仓库。问题由 lanzhihong6 分支指出。
+- 所有文件改为原子写入（先写临时文件再改名），符号链接形式的 Surge 配置会更新链接指向的文件。本工具创建的
+  文件权限为 `600`、目录为 `700`；Surge 配置保留原有权限。来自 MapleGu 分支。
+
+### 修复
+
+- 未带 `fp` 的 Reality 链接现在会使用 Chrome uTLS 指纹。sing-box 不允许 Reality 客户端不开 uTLS，而
+  1.6.0 起所有节点共用一份配置，只要有一个这样的链接，整次同步都会失败。来自 zeroskylian 分支。
+
+### 升级说明
+
+- 订阅里有信息条目时，排在它们之后的节点在下次 `sync` 后会改用更小的端口号。Surge 重载后自动生效，其他
+  地方不会引用这些端口。
+- 已有的配置文件不会被改权限。运行 `doctor`，如有提示再执行 `chmod 600`。
+
 ## [1.6.0] - 2026-10-30
 
 ### 变更

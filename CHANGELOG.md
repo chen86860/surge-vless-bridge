@@ -6,6 +6,46 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `subscriptionUrls` entries can be objects: `{ "url": "…", "prefix": "B | ", "group": "Provider B" }`.
+  `prefix` is prepended to every node name from that subscription; `group` puts its nodes in their own
+  url-test policy group. When every subscription has a group, `policyGroupName` is kept as a `select`
+  over them, so rules referencing it still load. Groups dropped from the config are removed on the next
+  `sync`, and `clean` removes all of them. Unknown fields and names containing `,` `=` or line breaks are
+  rejected. Suggested independently by the Bingmang, zeroskylian and lanzhihong6 forks.
+- `subscriptionProxy`: a failed subscription fetch is retried once through this proxy with `curl`, for
+  providers that are only reachable through a proxy or reject Node.js's TLS fingerprint. Credentials in
+  the proxy URL are never printed. From the SKYhuangjing fork.
+- `doctor` warns when the config file is readable by other users.
+
+### Changed
+
+- Subscription info entries (traffic left, expiry, reset countdown, …) are skipped instead of being kept
+  as a renamed node such as `node3` that never connects, and `sync` lists what it skipped. From the
+  SKYhuangjing fork.
+- Inside a git repository, `<repo root>/.surge-vless-bridge.json` is used only if it exists; otherwise
+  the global `~/.config/surge-vless-bridge/config.json` is. Before, running any command from an
+  unrelated repo failed with `Config file not found`, and `init` there wrote the subscription URL into
+  that repo. Reported in the lanzhihong6 fork.
+- Files are written atomically (temporary file, then rename), and symlinked Surge profiles are updated
+  through the link. Files this tool creates are mode `600` in `700` directories; the Surge profile
+  keeps its mode. From the MapleGu fork.
+
+### Fixed
+
+- Reality links without `fp` now get the Chrome uTLS fingerprint. sing-box refuses to start a reality
+  client without uTLS, and since 1.6.0 shares one config across nodes, one such link failed the whole
+  sync. From the zeroskylian fork.
+
+### Upgrade notes
+
+- If your subscription contains info entries, the nodes after them move to lower ports on the next
+  `sync`. Surge picks this up on reload; nothing else references the ports.
+- Existing config files keep their mode. Run `doctor`, and `chmod 600` the file if it warns.
+
 ## [1.6.0] - 2026-10-30
 
 ### Changed

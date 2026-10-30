@@ -35,6 +35,7 @@ const POLICY_REGEX_FILTER = /^((?!Remain|Expired|官网|如需|套餐|去除|剩
 // Left behind by releases that ran one sing-box per node; removed by the first sync or clean.
 const LEGACY_CONFIG_PATTERN = /^sing-box\[\d+\]\.json$/;
 const LEGACY_MANIFEST_FILE_NAME = 'manifest.json';
+const GROUPS_FILE_NAME = 'groups.json';
 const SING_BOX_CHECK_TIMEOUT_MS = 15_000;
 const DOH_RECORD_TYPES = {
   A: 1,
@@ -45,6 +46,8 @@ type GeneratedNode = {
   nodeName: string;
   port: number;
   server: string;
+  // A custom policy group; absent means `policyGroupName`.
+  group?: string;
 };
 
 type SingBoxConfig = {
@@ -141,14 +144,23 @@ const resolveWithDoh = async (server: string, dohEndpoint: string) => {
   return settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
 };
 
-const sanitizePolicyName = (tag: string, index: number) => {
-  const candidate = POLICY_REGEX_FILTER.test(tag) ? tag : `node${index + 1}`;
-  const sanitized = candidate
+// Providers list traffic left, expiry dates and similar notices as fake nodes. They were once kept
+// under a generated name, which only added a node to the url-test group that never connects.
+const isSubscriptionInfoEntry = (name: string) => name !== '' && !POLICY_REGEX_FILTER.test(name);
+
+const linkName = (link: string) => {
+  try {
+    return decodeURIComponent(new URL(link).hash.replace(/^#/, ''));
+  } catch {
+    return '';
+  }
+};
+
+const sanitizePolicyName = (name: string, index: number) =>
+  name
     .replace(/[,\n\r=]/g, ' ')
     .replace(/\s+/g, ' ')
-    .trim();
-  return sanitized || `node${index + 1}`;
-};
+    .trim() || `node${index + 1}`;
 
 type ResolverAttempt = {
   label: string;
@@ -170,14 +182,20 @@ const ensureUniquePolicyName = (nodeName: string, seenNames: Map<string, number>
 // adding a second provider usually keeps the legacy single-URL field, and dropping it silently would
 // remove every node of their original subscription. The legacy field stays first so existing node
 // order, and therefore the assigned local ports, do not shift.
-const getSubscriptionUrls = (config: CliConfig) => {
-  const urls = [config.subscriptionUrl, ...(config.subscriptionUrls ?? [])];
+type Subscription = { url: string; prefix: string; group?: string };
 
-  return [
-    ...new Set(
-      urls.filter((url): url is string => typeof url === 'string' && url.trim() !== '').map((url) => url.trim()),
-    ),
-  ];
+const getSubscriptions = (config: CliConfig): Subscription[] => {
+  const entries = [config.subscriptionUrl, ...(config.subscriptionUrls ?? [])].flatMap((entry) => {
+    if (typeof entry === 'string') {
+      return entry.trim() ? [{ url: entry.trim(), prefix: '' }] : [];
+    }
+
+    return entry ? [{ url: entry.url.trim(), prefix: entry.prefix ?? '', group: entry.group }] : [];
+  });
+
+  // The same URL listed twice is fetched once; its first entry's options win.
+  const seen = new Set<string>();
+  return entries.filter((entry) => !seen.has(entry.url) && seen.add(entry.url));
 };
 
 const getConfiguredVlessNodes = (config: CliConfig) =>
@@ -266,7 +284,7 @@ const buildProxyLines = (generated: GeneratedNode[], config: CliConfig) =>
   Promise.all(generated.map((entry) => buildExternalProxyLine({ ...entry, config })));
 
 const ensureRequiredConfig = (config: CliConfig) => {
-  if (getSubscriptionUrls(config).length === 0 && getConfiguredVlessNodes(config).length === 0) {
+  if (getSubscriptions(config).length === 0 && getConfiguredVlessNodes(config).length === 0) {
     throw new Error(
       'Missing subscriptionUrl/subscriptionUrls/vlessNodes. Run `surge-vless-bridge init` and fill the config, or pass --subscription-url.',
     );
@@ -343,6 +361,41 @@ const readSharedConfigNodes = async (outputDir: string) => {
 const readSharedConfigNodesIfPresent = async (outputDir: string) =>
   (await pathExists(sharedConfigPath(outputDir))) ? readSharedConfigNodes(outputDir).catch(() => []) : [];
 
+// Which policy group each node belongs to, for nodes outside `policyGroupName`. Kept beside
+// sing-box.json rather than inside it, since sing-box rejects fields it does not know.
+const groupsFilePath = (outputDir: string) => join(outputDir, GROUPS_FILE_NAME);
+
+type GroupsFile = { version: 1; nodeGroups: Record<string, string> };
+
+const readNodeGroups = async (outputDir: string): Promise<Record<string, string>> => {
+  if (!(await pathExists(groupsFilePath(outputDir)))) {
+    return {};
+  }
+
+  const file = await readJsonFile<GroupsFile>(groupsFilePath(outputDir));
+  if (file.version !== 1 || typeof file.nodeGroups !== 'object' || file.nodeGroups === null) {
+    throw new Error(`Invalid ${GROUPS_FILE_NAME}: ${groupsFilePath(outputDir)}`);
+  }
+
+  return file.nodeGroups;
+};
+
+// Every group a previous sync may have written, so the next one can drop those no longer configured.
+const readManagedGroupNames = async (config: CliConfig) => [
+  config.policyGroupName,
+  ...new Set(Object.values(await readNodeGroups(config.outputDir).catch(() => ({})))),
+];
+
+const serializeNodeGroups = (generated: GeneratedNode[]) => {
+  const file: GroupsFile = {
+    version: 1,
+    nodeGroups: Object.fromEntries(
+      generated.flatMap((entry) => (entry.group ? [[entry.nodeName, entry.group] as const] : [])),
+    ),
+  };
+  return `${JSON.stringify(file, null, 2)}\n`;
+};
+
 const writeLauncher = async (path: string) => {
   await writeTextFile(path, LAUNCHER_SCRIPT);
   await chmod(path, 0o755);
@@ -382,25 +435,63 @@ export const backupSurgeProfile = async (config: CliConfig) => {
   return backupPath;
 };
 
-const updatePolicyGroup = ({
+type PolicyGroup = { name: string; type: 'url-test' | 'select'; members: string[] };
+
+const formatPolicyGroupLine = ({ name, type, members }: PolicyGroup) =>
+  type === 'url-test'
+    ? `${name} = url-test, ${members.join(', ')}, no-alert=0, hidden=0`
+    : `${name} = select, ${members.join(', ')}`;
+
+// Nodes without a `group` go to `policyGroupName`. When every node has its own group, that name is
+// still written, as a `select` over the custom groups: rules that reference it keep working, and Surge
+// refuses to load a profile whose rules name a missing policy.
+const planPolicyGroups = (config: CliConfig, nodes: Array<{ nodeName: string; group?: string }>): PolicyGroup[] => {
+  const members = new Map<string, string[]>();
+  for (const { nodeName, group } of nodes) {
+    const name = group ?? config.policyGroupName;
+    members.set(name, [...(members.get(name) ?? []), nodeName]);
+  }
+
+  const defaultMembers = members.get(config.policyGroupName);
+  members.delete(config.policyGroupName);
+  const custom = [...members].map(([name, groupMembers]) => ({ name, type: 'url-test' as const, members: groupMembers }));
+
+  return [
+    defaultMembers
+      ? { name: config.policyGroupName, type: 'url-test' as const, members: defaultMembers }
+      : { name: config.policyGroupName, type: 'select' as const, members: custom.map((group) => group.name) },
+    ...custom,
+  ];
+};
+
+// Only lines of the two types this tool writes are matched, so a user's own group that happens to
+// share a stale name is not deleted.
+const managedGroupLinePattern = (name: string) => new RegExp(`^${escapeRegExp(name)}\\s*=\\s*(url-test|select),.*$\\n?`, 'm');
+
+const updatePolicyGroups = ({
   surgeText,
-  policyGroupName,
-  nodeNames,
+  groups,
+  staleGroupNames,
 }: {
   surgeText: string;
-  policyGroupName: string;
-  nodeNames: string[];
+  groups: PolicyGroup[];
+  staleGroupNames: string[];
 }) => {
   const sectionPattern = /(\[Proxy Group\])([\s\S]*?)(?=\n\[|$)/;
-  const groupPattern = new RegExp(`^${escapeRegExp(policyGroupName)}\\s*=.*$`, 'm');
-  const groupLine = `${policyGroupName} = url-test, ${nodeNames.join(', ')}, no-alert=0, hidden=0`;
+  const current = new Set(groups.map((group) => group.name));
 
-  return surgeText.replace(sectionPattern, (match, sectionTitle, sectionBody) => {
-    if (groupPattern.test(sectionBody)) {
-      return `${sectionTitle}${sectionBody.replace(groupPattern, groupLine)}`;
+  return surgeText.replace(sectionPattern, (_match: string, sectionTitle: string, sectionBody: string) => {
+    let body = sectionBody;
+    for (const name of staleGroupNames.filter((stale) => !current.has(stale))) {
+      body = body.replace(managedGroupLinePattern(name), '');
     }
 
-    return `${match}\n${groupLine}`;
+    for (const group of groups) {
+      const groupPattern = new RegExp(`^${escapeRegExp(group.name)}\\s*=.*$`, 'm');
+      body = groupPattern.test(body) ? body.replace(groupPattern, formatPolicyGroupLine(group)) : `${body}\n${formatPolicyGroupLine(group)}`;
+    }
+
+    return `${sectionTitle}${body}`;
   });
 };
 
@@ -473,15 +564,14 @@ const updateProxyBlock = ({
   });
 };
 
-const buildSurgeProfile = async ({
-  config,
-  proxyLines,
-  nodeNames,
-}: {
+type SurgeProfileUpdate = {
   config: CliConfig;
   proxyLines: string[];
-  nodeNames: string[];
-}) => {
+  groups: PolicyGroup[];
+  staleGroupNames: string[];
+};
+
+const buildSurgeProfile = async ({ config, proxyLines, groups, staleGroupNames }: SurgeProfileUpdate) => {
   const source = await readTextFile(config.surgeConfigPath);
   const withProxyBlock = updateProxyBlock({
     surgeText: source,
@@ -491,15 +581,11 @@ const buildSurgeProfile = async ({
 
   return {
     source,
-    updated: updatePolicyGroup({
-      surgeText: withProxyBlock,
-      policyGroupName: config.policyGroupName,
-      nodeNames,
-    }),
+    updated: updatePolicyGroups({ surgeText: withProxyBlock, groups, staleGroupNames }),
   };
 };
 
-const writeSurgeProfile = async (params: { config: CliConfig; proxyLines: string[]; nodeNames: string[] }) => {
+const writeSurgeProfile = async (params: SurgeProfileUpdate) => {
   const { updated } = await buildSurgeProfile(params);
   await replaceTextFile(params.config.surgeConfigPath, updated);
   return updated;
@@ -516,19 +602,21 @@ const maybeReloadSurge = async (config: CliConfig, surgeText: string) => {
   }
 };
 
+type NodeSource = { outbound: SingBoxVlessOutbound; prefix: string; group?: string };
+
 const generateConfigsFromOutbounds = async ({
-  outbounds,
+  sources,
   config,
   stagingDir,
 }: {
-  outbounds: SingBoxVlessOutbound[];
+  sources: NodeSource[];
   config: CliConfig;
   stagingDir: string;
 }) => {
   const seenNodeNames = new Map<string, number>();
-  const nodes = outbounds.map((outbound, index) => {
-    const nodeName = ensureUniquePolicyName(sanitizePolicyName(outbound.tag, index), seenNodeNames);
-    return { outbound: { ...outbound, tag: nodeName }, port: config.portStart + index };
+  const nodes = sources.map(({ outbound, prefix, group }, index) => {
+    const nodeName = ensureUniquePolicyName(sanitizePolicyName(`${prefix}${outbound.tag}`, index), seenNodeNames);
+    return { outbound: { ...outbound, tag: nodeName }, port: config.portStart + index, group };
   });
 
   const stagedConfigPath = join(stagingDir, SHARED_CONFIG_FILE_NAME);
@@ -540,20 +628,22 @@ const generateConfigsFromOutbounds = async ({
   await validateSingBoxConfig(config.singBoxBinary, stagedConfigPath);
 
   const generated = nodes.map(
-    ({ outbound, port }) => ({ nodeName: outbound.tag, port, server: outbound.server }) satisfies GeneratedNode,
+    ({ outbound, port, group }) =>
+      ({ nodeName: outbound.tag, port, server: outbound.server, ...(group ? { group } : {}) }) satisfies GeneratedNode,
   );
+  await writeTextFile(join(stagingDir, GROUPS_FILE_NAME), serializeNodeGroups(generated));
 
   return {
     generated,
     proxyLines: await buildProxyLines(generated, config),
-    nodeNames: generated.map((entry) => entry.nodeName),
+    groups: planPolicyGroups(config, generated),
   };
 };
 
-// Both files are renamed into place, so a launcher Surge starts mid-sync sees either the old config
-// or the new one, never a partial write.
+// Renamed into place one by one, so a launcher Surge starts mid-sync sees either the old config or
+// the new one, never a partial write.
 const promoteGeneratedConfigs = async (config: CliConfig, stagingDir: string) => {
-  for (const name of [LAUNCHER_FILE_NAME, SHARED_CONFIG_FILE_NAME]) {
+  for (const name of [LAUNCHER_FILE_NAME, SHARED_CONFIG_FILE_NAME, GROUPS_FILE_NAME]) {
     await rename(join(stagingDir, name), join(config.outputDir, name));
   }
 };
@@ -561,23 +651,26 @@ const promoteGeneratedConfigs = async (config: CliConfig, stagingDir: string) =>
 const reportDryRun = async ({
   config,
   generated,
+  staleGroupNames,
 }: {
   config: CliConfig;
-  generated: { generated: GeneratedNode[]; proxyLines: string[]; nodeNames: string[] };
+  generated: { generated: GeneratedNode[]; proxyLines: string[]; groups: PolicyGroup[] };
+  staleGroupNames: string[];
 }) => {
   const { source, updated } = await buildSurgeProfile({
     config,
     proxyLines: generated.proxyLines,
-    nodeNames: generated.nodeNames,
+    groups: generated.groups,
+    staleGroupNames,
   });
 
-  console.log(`Would write ${generated.nodeNames.length} nodes:`);
+  console.log(`Would write ${generated.generated.length} nodes:`);
   for (const entry of generated.generated) {
     console.log(`  ${String(entry.port).padEnd(6)} ${entry.nodeName}`);
   }
 
   const existing = new Set((await readSharedConfigNodesIfPresent(config.outputDir)).map((entry) => entry.nodeName));
-  const expected = new Set(generated.nodeNames);
+  const expected = new Set(generated.generated.map((entry) => entry.nodeName));
   const added = [...expected].filter((entry) => !existing.has(entry)).length;
   const removed = [...existing].filter((entry) => !expected.has(entry)).length;
 
@@ -587,7 +680,9 @@ const reportDryRun = async ({
       ? `Surge profile unchanged: ${config.surgeConfigPath}`
       : `Surge profile would change: ${config.surgeConfigPath}`,
   );
-  console.log(`Policy group: ${config.policyGroupName} = url-test, ${generated.nodeNames.join(', ')}`);
+  for (const group of generated.groups) {
+    console.log(`Policy group: ${formatPolicyGroupLine(group)}`);
+  }
 };
 
 export const cleanManagedArtifacts = async (config: CliConfig) => {
@@ -598,26 +693,28 @@ export const cleanManagedArtifacts = async (config: CliConfig) => {
   const backupPath = await backupSurgeProfile(config);
   const source = await readTextFile(config.surgeConfigPath);
 
-  // Drops the managed block and the generated policy group, leaving the rest of the profile as is.
+  // Drops the managed block and the generated policy groups, leaving the rest of the profile as is.
   const withoutBlock = source.replace(
     new RegExp(`\\n?${escapeRegExp(config.proxyStartMarker)}[\\s\\S]*?${escapeRegExp(config.proxyEndMarker)}\\n?`, 'm'),
     '\n',
   );
-  const withoutGroup = withoutBlock.replace(
-    new RegExp(`^${escapeRegExp(config.policyGroupName)}\\s*=\\s*url-test,.*$\\n?`, 'm'),
-    '',
+  const withoutGroups = (await readManagedGroupNames(config)).reduce(
+    (text, name) => text.replace(managedGroupLinePattern(name), ''),
+    withoutBlock,
   );
 
-  await replaceTextFile(config.surgeConfigPath, withoutGroup);
+  await replaceTextFile(config.surgeConfigPath, withoutGroups);
 
   const nodeCount = (await readSharedConfigNodesIfPresent(config.outputDir)).length;
   await stopSharedSingBox(config.outputDir);
   await Promise.all(
-    [SHARED_CONFIG_FILE_NAME, LAUNCHER_FILE_NAME].map((name) => rm(join(config.outputDir, name), { force: true })),
+    [SHARED_CONFIG_FILE_NAME, LAUNCHER_FILE_NAME, GROUPS_FILE_NAME].map((name) =>
+      rm(join(config.outputDir, name), { force: true }),
+    ),
   );
   const legacyCount = await removeLegacyConfigs(config.outputDir);
 
-  await maybeReloadSurge(config, withoutGroup);
+  await maybeReloadSurge(config, withoutGroups);
 
   return {
     backupPath,
@@ -630,39 +727,59 @@ export const syncSubscriptionToSurge = async (config: CliConfig, { dryRun = fals
   await ensureRuntimePaths(config);
   await ensureWritableDirs(config);
 
-  const subscriptionUrls = getSubscriptionUrls(config);
-  const describeSubscription = (index: number) => `Subscription ${index + 1} of ${subscriptionUrls.length}`;
-  const vlessNodesBySubscription = await Promise.all(
-    subscriptionUrls.map(async (subscriptionUrl, index) => {
+  const subscriptions = getSubscriptions(config);
+  const describeSubscription = (index: number) => `Subscription ${index + 1} of ${subscriptions.length}`;
+  const linksBySubscription = await Promise.all(
+    subscriptions.map(async (subscription, index) => {
       try {
         return await getVlessSubscriptionNodes({
-          subscriptionUrl,
+          subscriptionUrl: subscription.url,
           requestHeaders: config.requestHeaders,
+          proxy: config.subscriptionProxy,
         });
       } catch (error) {
         throw new Error(`${describeSubscription(index)}: ${error instanceof Error ? error.message : error}`);
       }
     }),
   );
-  vlessNodesBySubscription.forEach((nodes, index) => {
-    if (nodes.length === 0) {
+  linksBySubscription.forEach((links, index) => {
+    if (links.length === 0) {
       console.warn(`${describeSubscription(index)} returned no VLESS nodes.`);
     }
   });
 
-  const vlessNodes = [...vlessNodesBySubscription.flat(), ...getConfiguredVlessNodes(config)];
+  const links = [
+    ...linksBySubscription.flatMap((subscriptionLinks, index) =>
+      subscriptionLinks.map((link) => ({ link, prefix: subscriptions[index]!.prefix, group: subscriptions[index]!.group })),
+    ),
+    ...getConfiguredVlessNodes(config).map((link) => ({ link, prefix: '', group: undefined })),
+  ];
+
+  // Filtered on the link's name before parsing: info entries are often not valid nodes at all (no
+  // UUID, port 0), and parsing them would fail the whole sync over a line that was never a node.
+  const skipped = links.filter(({ link }) => isSubscriptionInfoEntry(linkName(link)));
+  const usable = links.filter(({ link }) => !isSubscriptionInfoEntry(linkName(link)));
+  if (skipped.length > 0) {
+    console.warn(
+      `Skipped ${skipped.length} subscription info entr${skipped.length === 1 ? 'y' : 'ies'}: ${skipped
+        .map(({ link }) => linkName(link))
+        .join(', ')}`,
+    );
+  }
 
   // Checked across all sources rather than per subscription: with several providers configured, one
   // expired subscription should not be able to wipe the Surge profile.
-  if (vlessNodes.length === 0) {
+  if (usable.length === 0) {
     throw new Error('No VLESS nodes from any configured source; refusing to update the Surge profile.');
   }
 
   if (config.subscriptionOutputPath && !dryRun) {
-    await writeTextFile(config.subscriptionOutputPath, `${vlessNodes.join('\n')}\n`);
+    await writeTextFile(config.subscriptionOutputPath, `${usable.map(({ link }) => link).join('\n')}\n`);
   }
 
-  const outbounds = vlessNodes.map((node, index) => parseVlessNode(node, index));
+  const sources = usable.map(({ link, prefix, group }, index) => ({ outbound: parseVlessNode(link, index), prefix, group }));
+
+  const staleGroupNames = await readManagedGroupNames(config);
 
   // Everything is generated and validated in a staging directory first, so a failure part-way through
   // leaves both the Surge profile and the previous node configs untouched.
@@ -670,13 +787,13 @@ export const syncSubscriptionToSurge = async (config: CliConfig, { dryRun = fals
   await mkdir(stagingDir, { recursive: true });
 
   try {
-    const generated = await generateConfigsFromOutbounds({ outbounds, config, stagingDir });
+    const generated = await generateConfigsFromOutbounds({ sources, config, stagingDir });
 
     // The staging directory already holds validated configs, so a dry run can report exactly what a
     // real sync would produce without having written anything outside it.
     if (dryRun) {
-      await reportDryRun({ config, generated });
-      return { dryRun: true as const, backupPath: undefined, count: generated.nodeNames.length };
+      await reportDryRun({ config, generated, staleGroupNames });
+      return { dryRun: true as const, backupPath: undefined, count: generated.generated.length };
     }
 
     const backupPath = await backupSurgeProfile(config);
@@ -685,7 +802,8 @@ export const syncSubscriptionToSurge = async (config: CliConfig, { dryRun = fals
     const surgeText = await writeSurgeProfile({
       config,
       proxyLines: generated.proxyLines,
-      nodeNames: generated.nodeNames,
+      groups: generated.groups,
+      staleGroupNames,
     });
 
     const legacyCount = await removeLegacyConfigs(config.outputDir);
@@ -700,7 +818,7 @@ export const syncSubscriptionToSurge = async (config: CliConfig, { dryRun = fals
     return {
       dryRun: false as const,
       backupPath,
-      count: generated.nodeNames.length,
+      count: generated.generated.length,
     };
   } finally {
     await rm(stagingDir, { recursive: true, force: true });
@@ -723,7 +841,10 @@ export const rebuildSurgeFromLocalConfigs = async (config: CliConfig) => {
     );
   }
 
-  const generated = await readSharedConfigNodes(config.outputDir);
+  const nodeGroups = await readNodeGroups(config.outputDir);
+  const generated = (await readSharedConfigNodes(config.outputDir)).map((entry) =>
+    nodeGroups[entry.nodeName] ? { ...entry, group: nodeGroups[entry.nodeName] } : entry,
+  );
   if (generated.length === 0) {
     throw new Error(`No usable nodes found in ${sharedConfigPath(config.outputDir)}`);
   }
@@ -736,7 +857,8 @@ export const rebuildSurgeFromLocalConfigs = async (config: CliConfig) => {
   const surgeText = await writeSurgeProfile({
     config,
     proxyLines,
-    nodeNames: generated.map((entry) => entry.nodeName),
+    groups: planPolicyGroups(config, generated),
+    staleGroupNames: await readManagedGroupNames(config),
   });
 
   await maybeReloadSurge(config, surgeText);
@@ -808,7 +930,7 @@ const findPortConflicts = async (portStart: number, count: number) => {
 };
 
 export const runDoctor = async (config: CliConfig, { configPath }: { configPath?: string } = {}) => {
-  const subscriptionUrls = getSubscriptionUrls(config);
+  const subscriptionUrls = getSubscriptions(config);
   const vlessNodes = getConfiguredVlessNodes(config);
   const checks: DoctorCheck[] = [];
 
@@ -822,7 +944,6 @@ export const runDoctor = async (config: CliConfig, { configPath }: { configPath?
       detail: exposed ? `${configPath} is readable by other users; run \`chmod 600\` on it` : configPath,
     });
   }
-
 
   checks.push({
     label: 'nodeSources',
