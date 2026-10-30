@@ -6,6 +6,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-30
+
+### Changed
+
+- All nodes now share one sing-box process. `sync` writes a single `sing-box.json` with one SOCKS inbound
+  per node, and every Surge node runs a small `launcher.sh` instead of sing-box itself. A url-test group
+  starts all of its nodes at once, so this used to mean one ~45 MB sing-box per node; measured in Surge,
+  5 nodes drop from ~220 MB to ~58 MB. The launchers start sing-box on first use, reuse it, stop it with
+  the last node, restart it when `sing-box.json` changes, run `sing-box check` before each start, and exit
+  on their own once Surge is gone or `clean` has run. The idea comes from the
+  [leoz9/surge-vless-bridge](https://github.com/leoz9/surge-vless-bridge) fork, reworked to avoid one
+  ~49 MB Node.js process per node and a sing-box that kept serving a stale config after a sync.
+- `clean` stops the shared sing-box before removing the generated files.
+- `doctor` reports `auto-reload` (HTTP API or `surge-cli`) instead of `surge-http-api`, and adds a
+  `sing-box` line showing whether the shared process is running.
+- The Chinese README is now `README.md`; the English one moved to `README.en.md`.
+- The agent setup guide covers the shared process, how to verify a setup, and what to report back.
+
+### Fixed
+
+- Automatic reload now finds the `surge-cli` bundled inside `Surge.app`. Only `PATH` was searched before,
+  and Surge does not put it there, so profiles without `http-api` were never reloaded.
+
+### Upgrade notes
+
+- Run `sync` once after upgrading. It replaces the per-node `sing-box[port].json` files and
+  `manifest.json` with the shared config; `rebuild` refuses to run until then.
+
 ## [1.5.1] - 2026-08-18
 
 ### Fixed
@@ -190,6 +218,8 @@ All notable changes to this project are documented here. The format follows
 Initial public releases: `init` / `sync` / `rebuild` / `restore` / `doctor` commands, VLESS
 subscription parsing, per-node sing-box config generation, Surge profile backup, and npm publishing.
 
+[1.6.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.1...v1.6.0
+[1.5.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1

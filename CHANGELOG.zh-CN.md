@@ -5,6 +5,33 @@
 本文件记录项目的所有重要变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循[语义化版本](https://semver.org/lang/zh-CN/spec/v2.0.0.html)。
 
+## [1.6.0] - 2026-10-30
+
+### 变更
+
+- 所有节点改为共用一个 sing-box 进程。`sync` 只生成一份 `sing-box.json`，每个节点占一个 SOCKS 入站端口；
+  Surge 中的每个节点运行一个很小的 `launcher.sh`，不再直接运行 sing-box。url-test 策略组会同时拉起组内所有
+  节点，过去意味着每个节点一个约 45 MB 的 sing-box；在 Surge 中实测，5 个节点从约 220 MB 降到约 58 MB。
+  launcher 在首次使用时启动 sing-box，之后复用，最后一个节点退出时关闭；`sing-box.json` 变化时自动重启，
+  每次启动前先跑 `sing-box check`；Surge 退出或执行 `clean` 后自行退出。思路来自
+  [leoz9/surge-vless-bridge](https://github.com/leoz9/surge-vless-bridge) 分支，并改掉了其中每个节点一个
+  约 49 MB Node.js 进程、以及同步后 sing-box 仍在使用旧配置的问题。
+- `clean` 会在删除生成文件前先停止共享的 sing-box。
+- `doctor` 用 `auto-reload`（HTTP API 或 `surge-cli`）替代原来的 `surge-http-api`，并新增 `sing-box`
+  一行，显示共享进程是否在运行。
+- 中文 README 改为 `README.md`，英文版移到 `README.en.md`。
+- Agent 配置指南补充了共享进程说明、验证步骤，以及结束时应汇报的内容。
+
+### 修复
+
+- 自动重载现在能找到 `Surge.app` 内自带的 `surge-cli`。此前只在 `PATH` 中查找，而 Surge 不会把它加进
+  `PATH`，因此未开启 `http-api` 的配置从来没有被自动重载过。
+
+### 升级说明
+
+- 升级后执行一次 `sync`。它会用共享配置替换按节点生成的 `sing-box[端口].json` 和 `manifest.json`；在此
+  之前 `rebuild` 会拒绝执行。
+
 ## [1.5.1] - 2026-08-18
 
 ### 修复
@@ -167,6 +194,8 @@
 首批公开发布：`init` / `sync` / `rebuild` / `restore` / `doctor` 命令、VLESS 订阅解析、按节点生成
 sing-box 配置、Surge 配置备份，以及 npm 发布流程。
 
+[1.6.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.1...v1.6.0
+[1.5.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/chen86860/surge-vless-bridge/compare/v1.3.0...v1.3.1
